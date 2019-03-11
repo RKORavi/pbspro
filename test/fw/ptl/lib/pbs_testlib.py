@@ -51,6 +51,9 @@ import copy
 import datetime
 import traceback
 import threading
+import json
+import base64
+import glob
 from operator import itemgetter
 from collections import OrderedDict
 from distutils.version import LooseVersion
@@ -3879,8 +3882,8 @@ class PBSService(PBSObject):
         the service
         """
 
-    def log_lines(self, logtype, id=None, n=50, tail=True, day=None,
-                  starttime=None, endtime=None):
+    def log_lines(self, logtype, id=None, n=50, tail=True, starttime=None,
+                  endtime=None):
         """
         Return the last ``<n>`` lines of a PBS log file, which
         can be one of ``server``, ``scheduler``, ``MoM``, or
@@ -3908,9 +3911,12 @@ class PBSService(PBSObject):
                   ``Scheduler``, ``MoM or tracejob``
         """
         logval = None
-        lines = None
+        lines = []
         sudo = False
-
+        if endtime is None:
+            endtime = int(time.time())
+        if starttime is None:
+            starttime = self.ctime
         try:
             if logtype == 'tracejob':
                 if id is None:
@@ -3924,47 +3930,60 @@ class PBSService(PBSObject):
                 if n != 'ALL':
                     lines = lines[-n:]
             else:
-                if day is None:
-                    day = time.strftime("%Y%m%d", time.localtime(time.time()))
+                daystart = time.strftime("%Y%m%d", time.localtime(starttime))
+                dayend = time.strftime("%Y%m%d", time.localtime(endtime))
+                firstday_obj = datetime.datetime.strptime(daystart, '%Y%m%d')
+                lastday_obj = datetime.datetime.strptime(dayend, '%Y%m%d')
                 if logtype == 'accounting':
-                    filename = os.path.join(self.pbs_conf['PBS_HOME'],
-                                            'server_priv', 'accounting', day)
+                    logdir = os.path.join(self.pbs_conf['PBS_HOME'],
+                                          'server_priv', 'accounting')
                     sudo = True
+                elif (isinstance(self, Scheduler) and
+                        'sched_log' in self.attributes):
+                    # if setup is multi-sched then get logdir from
+                    # its attributes
+                    logdir = self.attributes['sched_log']
                 else:
-                    if (isinstance(self, Scheduler) and
-                            'sched_log' in self.attributes):
-                        filename = os.path.join(
-                            self.attributes['sched_log'], day)
+                    logval = self._instance_to_logpath(logtype)
+                    if logval is None:
+                        m = 'Invalid logtype'
+                        raise PtlLogMatchError(rv=False, rc=-1, msg=m)
+                    logdir = os.path.join(self.pbs_conf['PBS_HOME'], logval)
+                while firstday_obj <= lastday_obj:
+                    day = firstday_obj.strftime("%Y%m%d")
+                    filename = os.path.join(logdir, day)
+                    if n == 'ALL':
+                        if self._is_local and not sudo:
+                            with open(filename) as f:
+                                day_lines = f.readlines()
+                        else:
+                            day_lines = self.du.cat(
+                                self.hostname, filename, sudo=sudo,
+                                level=logging.DEBUG2)['out']
+                    elif self._is_local and not sudo:
+                        if tail:
+                            futils = FileUtils(filename, FILE_TAIL)
+                        else:
+                            futils = FileUtils(filename)
+                        day_lines = futils.next(n)
                     else:
-                        logval = self._instance_to_logpath(logtype)
-                        if logval:
-                            filename = os.path.join(self.pbs_conf['PBS_HOME'],
-                                                    logval, day)
-                if n == 'ALL':
-                    if self._is_local and not sudo:
-                        lines = open(filename)
-                    else:
-                        lines = self.du.cat(self.hostname, filename, sudo=sudo,
-                                            level=logging.DEBUG2)['out']
-                elif self._is_local and not sudo:
-                    if tail:
-                        futils = FileUtils(filename, FILE_TAIL)
-                    else:
-                        futils = FileUtils(filename)
-                    lines = futils.next(n)
-                else:
-                    if tail:
-                        cmd = ['/usr/bin/tail']
-                    else:
-                        cmd = ['/usr/bin/head']
+                        if tail:
+                            cmd = ['/usr/bin/tail']
+                        else:
+                            cmd = ['/usr/bin/head']
 
-                    pyexec = os.path.join(self.pbs_conf['PBS_EXEC'], 'python',
-                                          'bin', 'python')
-                    osflav = self.du.get_platform(self.hostname, pyexec)
-                    cmd += ['-n']
-                    cmd += [str(n), filename]
-                    lines = self.du.run_cmd(self.hostname, cmd, sudo=sudo,
-                                            level=logging.DEBUG2)['out']
+                        cmd += ['-n']
+                        cmd += [str(n), filename]
+                        day_lines = self.du.run_cmd(
+                            self.hostname, cmd, sudo=sudo,
+                            level=logging.DEBUG2)['out']
+                    lines.extend(day_lines)
+                    firstday_obj = firstday_obj + datetime.timedelta(days=1)
+                    if n == 'ALL':
+                        continue
+                    n = n - len(day_lines)
+                    if n <= 0:
+                        break
         except:
             self.logger.error('error in log_lines ')
             traceback.print_exc()
@@ -3973,7 +3992,7 @@ class PBSService(PBSObject):
         return lines
 
     def _log_match(self, logtype, msg, id=None, n=50, tail=True,
-                   allmatch=False, regexp=False, day=None, max_attempts=None,
+                   allmatch=False, regexp=False, max_attempts=None,
                    interval=None, starttime=None, endtime=None,
                    level=logging.INFO, existence=True):
         """
@@ -4003,8 +4022,6 @@ class PBSService(PBSObject):
         :param regexp: If true msg is a Python regular expression.
                        Defaults to False
         :type regexp: bool
-        :param day: Optional day in YYYMMDD format.
-        :type day: str
         :param max_attempts: the number of attempts to make to find
                              a matching entry
         :type max_attempts: int
@@ -4049,8 +4066,6 @@ class PBSService(PBSObject):
             max_attempts = 60
         if interval is None:
             interval = 0.5
-        if starttime is None and n != 'ALL':
-            starttime = self.ctime
         rv = (None, None)
         attempt = 1
         lines = None
@@ -4065,7 +4080,7 @@ class PBSService(PBSObject):
         while attempt <= max_attempts:
             if attempt > 1:
                 attemptmsg = ' - attempt ' + str(attempt)
-            lines = self.log_lines(logtype, id, n=n, tail=tail, day=day,
+            lines = self.log_lines(logtype, id, n=n, tail=tail,
                                    starttime=starttime, endtime=endtime)
             rv = self.logutils.match_msg(lines, msg, allmatch=allmatch,
                                          regexp=regexp, starttime=starttime,
@@ -4074,8 +4089,7 @@ class PBSService(PBSObject):
                 self.logger.log(level, infomsg + '... OK')
                 break
             else:
-                if ((starttime is not None or endtime is not None) and
-                        n != 'ALL'):
+                if n != 'ALL':
                     if attempt > max_attempts:
                         # We will do one last attempt to match in case the
                         # number of lines that were provided did not capture
@@ -4099,9 +4113,9 @@ class PBSService(PBSObject):
         return rv
 
     def accounting_match(self, msg, id=None, n=50, tail=True,
-                         allmatch=False, regexp=False, day=None,
-                         max_attempts=None, interval=None, starttime=None,
-                         endtime=None, level=logging.INFO, existence=True):
+                         allmatch=False, regexp=False, max_attempts=None,
+                         interval=None, starttime=None, endtime=None,
+                         level=logging.INFO, existence=True):
         """
         Match given ``msg`` in given ``n`` lines of accounting log
 
@@ -4124,8 +4138,6 @@ class PBSService(PBSObject):
         :param regexp: If true msg is a Python regular expression.
                        Defaults to False
         :type regexp: bool
-        :param day: Optional day in YYYMMDD format.
-        :type day: str
         :param max_attempts: the number of attempts to make to find
                              a matching entry
         :type max_attempts: int
@@ -4159,13 +4171,13 @@ class PBSService(PBSObject):
                   number, not the absolute line number in the file.
         """
         return self._log_match('accounting', msg, id, n, tail, allmatch,
-                               regexp, day, max_attempts, interval, starttime,
+                               regexp, max_attempts, interval, starttime,
                                endtime, level, existence)
 
     def tracejob_match(self, msg, id=None, n=50, tail=True,
-                       allmatch=False, regexp=False, day=None,
-                       max_attempts=None, interval=None, starttime=None,
-                       endtime=None, level=logging.INFO, existence=True):
+                       allmatch=False, regexp=False, max_attempts=None,
+                       interval=None, starttime=None, endtime=None,
+                       level=logging.INFO, existence=True):
         """
         Match given ``msg`` in given ``n`` lines of tracejob log
 
@@ -4187,8 +4199,6 @@ class PBSService(PBSObject):
         :param regexp: If true msg is a Python regular expression.
                        Defaults to False
         :type regexp: bool
-        :param day: Optional day in YYYMMDD format.
-        :type day: str
         :param max_attempts: the number of attempts to make to find
                              a matching entry
         :type max_attempts: int
@@ -4222,7 +4232,7 @@ class PBSService(PBSObject):
                   number, not the absolute line number in the file.
         """
         return self._log_match('tracejob', msg, id, n, tail, allmatch,
-                               regexp, day, max_attempts, interval, starttime,
+                               regexp, max_attempts, interval, starttime,
                                endtime, level, existence)
 
     def _save_config_file(self, dict_conf, fname):
@@ -4245,45 +4255,71 @@ class PBSService(PBSObject):
         """
         if os.path.isfile(infile):
             conf = {}
-            f = open(infile, 'r')
-            # load all objects from the Pickled file
-            while True:
-                try:
-                    conf = cPickle.load(f)
-                except:
-                    break
-            f.close()
-
-            if objtype and objtype in conf:
-                conf = conf[objtype]
-            else:
-                # load all object types that could be in infile
-                newconf = {}
-                for ky in [MGR_OBJ_SERVER, MGR_OBJ_SCHED, MGR_OBJ_NODE]:
-                    if ky not in conf:
-                        conf[ky] = {}
-                    newconf = dict(newconf.items() + conf[ky].items())
-                conf = newconf
-
+            with open(infile, 'r') as f:
+                conf = json.load(f)
             for k, v in conf.items():
                 fn = self.du.create_temp_file()
-                with open(fn, 'w') as fd:
-                    # handle server data saved as output of qmgr commands
-                    # by piping data back into qmgr
-                    if k.startswith('qmgr_'):
-                        qmgr = os.path.join(self.client_conf['PBS_EXEC'],
-                                            'bin', 'qmgr')
-                        fd.write("\n".join(v))
-                        self.du.run_cmd(self.hostname, [qmgr], cstdin=fd,
-                                        sudo=True)
-                    else:
-                        fd.write("\n".join(v))
-                        # append the last line
-                        fd.write("\n")
-                        self.du.run_cmd(self.hostname, ['cp', fn, k],
-                                        sudo=True)
+                qmgr = os.path.join(self.client_conf['PBS_EXEC'],
+                                    'bin', 'qmgr')
+                if k.startswith('qmgr_'):
+                    #with open(fn, 'w') as fd:
+                    #    fd.write("#!/bin/bash\n")
+                    #    fd.write("\n".join(v))
+                    fd, path = tempfile.mkstemp(prefix="runcmd_")
+                    os.chmod(path, 0o700)
+                    with open(path, 'a') as f:
+                        f.write('\n'.join(v))
+                    qmgr_cmd = qmgr +" < "+path
+                    d = self.du.run_cmd(self.hostname, qmgr_cmd, sudo=True, as_script=True)
+                    os.unlink(path)
+                    # Load site hooks
+                elif k == "pbs_conf":
+                    f_w = base64.decodestring(v)
+                    conf_path = os.path.join(os.sep, 'etc', 'pbs.conf')
+                    cmd = f_w+" > "+path
+                    self.du.run_cmd(self.hostname, cmd, sudo=True, as_script=True)
+                elif k == "hooks":
+                    for hpath in conf['hooks']:
+                        h_name = hpath.split(os.sep)[-1]
+                        hook_name = h_name[:-3]
+                        hook_name = str(hook_name)
+                        if hook_name.startswith("PBS_"):
+                            print("PBS hook = %s" % hook_name)
+                        else:
+                            print("Site hook = %s" % hook_name)
+                            cf_hpath = ""
+                            if ".PY" in hpath:
+                                cf_hpath = hpath.replace('.PY', '.CF', 1)
+                                hk_hpath = hpath.replace('.PY', '.HK', 1)
+                                cmd = qmgr+" -c 'create hook %s'"%hook_name
+                                self.du.run_cmd(self.hostname, cmd, sudo=True, as_script=True)
+                                hk_contents = base64.decodestring(conf['hooks'][hk_hpath])
+                                hk_vals = self.utils.convert_to_dictlist(hk_contents.splitlines())
+                                for k,val in hk_vals[0].items():
+                                    if k == 'event':
+                                        e_v = val.split(',')
+                                        for v in e_v:
+                                            cmd = qmgr+" -c 's h %s event+=%s'"%(hook_name, v)
+                                            self.du.run_cmd(self.hostname, cmd, sudo=True, as_script=True)
+                                    cmd = qmgr+" -c 's h %s %s=%s"%(hook_name, k, val)
+                                hook_py_b64str = conf['hooks'][hpath]
+                                hook_py_str = base64.decodestring(hook_py_b64str)
+                                fn = self.du.create_temp_file()
+                                with open(fn, 'w') as fd:
+                                    fd.write(hook_py_str)
+                                import_py_cmd = qmgr+" -c 'i h cloud_hook application/x-python default %s'"%fn
+                                self.du.run_cmd(self.hostname, import_py_cmd, sudo=True, as_script=True)
+                                #os.unlink(fn)
+                            if cf_hpath in conf['hooks']:
+                                hook_cf_b64str = conf['hooks'][cf_hpath]
+                                hook_cf_str = base64.decodestring(hook_cf_b64str)
+                                fn = self.du.create_temp_file()
+                                with open(fn, 'w') as fd:
+                                    fd.write(hook_cf_str)
+                                import_cfg_cmd = qmgr+" -c 'i h cloud_hook application/x-config default %s'"%fn
+                                self.du.run_cmd(self.hostname, import_cfg_cmd, sudo=True, as_script=True)
+                                #os.unlink(fn)
                     os.remove(fn)
-
             return True
         return False
 
@@ -4433,7 +4469,7 @@ class Comm(PBSService):
         return self.start()
 
     def log_match(self, msg=None, id=None, n=50, tail=True, allmatch=False,
-                  regexp=False, day=None, max_attempts=None, interval=None,
+                  regexp=False, max_attempts=None, interval=None,
                   starttime=None, endtime=None, level=logging.INFO,
                   existence=True):
         """
@@ -4458,8 +4494,6 @@ class Comm(PBSService):
         :param regexp: If true msg is a Python regular expression.
                        Defaults to False
         :type regexp: bool
-        :param day: Optional day in YYYMMDD format.
-        :type day: str
         :param max_attempts: the number of attempts to make to find
                              a matching entry
         :type max_attempts: int
@@ -4493,7 +4527,7 @@ class Comm(PBSService):
                   number, not the absolute line number in the file.
         """
         return self._log_match(self, msg, id, n, tail, allmatch, regexp,
-                               day, max_attempts, interval, starttime, endtime,
+                               max_attempts, interval, starttime, endtime,
                                level=level, existence=existence)
 
 
@@ -4609,6 +4643,7 @@ class Server(PBSService):
         self.last_error = []  # type: array. Set for CLI IFL errors. Not reset
         self.last_out = []  # type: array. Set for CLI IFL output. Not reset
         self.last_rc = None  # Set for CLI IFL return code. Not thread-safe
+        self.moms = {}
 
         # default timeout on connect/disconnect set to 60s to mimick the qsub
         # buffer introduced in PBS 11
@@ -4963,7 +4998,7 @@ class Server(PBSService):
         return self.start()
 
     def log_match(self, msg=None, id=None, n=50, tail=True, allmatch=False,
-                  regexp=False, day=None, max_attempts=None, interval=None,
+                  regexp=False, max_attempts=None, interval=None,
                   starttime=None, endtime=None, level=logging.INFO,
                   existence=True):
         """
@@ -4988,8 +5023,6 @@ class Server(PBSService):
         :param regexp: If true msg is a Python regular expression.
                        Defaults to False
         :type regexp: bool
-        :param day: Optional day in YYYMMDD format.
-        :type day: str
         :param max_attempts: the number of attempts to make to find
                              a matching entry
         :type max_attempts: int
@@ -5023,7 +5056,7 @@ class Server(PBSService):
                   number, not the absolute line number in the file.
         """
         return self._log_match(self, msg, id, n, tail, allmatch, regexp,
-                               day, max_attempts, interval, starttime, endtime,
+                               max_attempts, interval, starttime, endtime,
                                level=level, existence=existence)
 
     def revert_to_defaults(self, reverthooks=True, revertqueues=True,
@@ -5204,41 +5237,81 @@ class Server(PBSService):
         """
         conf = {}
         sconf = {MGR_OBJ_SERVER: conf}
-
+        # save resourcedef file
         rd = os.path.join(self.pbs_conf['PBS_HOME'], 'server_priv',
-                          'resourcedef')
-        self._save_config_file(conf, rd)
-
+                          'resourcedef') 
+        try:
+            with open(rd, 'r') as rdef_file:
+                rdef_str = rdef_file.read()
+            b64_rdef = base64.encodestring(rdef_str)
+            conf['resourcedef_file'] = b64_rdef
+        except:
+            print("Resourcedef file not found")
+        # save pbs.conf file
+        pcfg = os.path.join(os.sep, 'etc', 'pbs.conf')
+        with open(pcfg, 'r') as p:
+            pbs_cfg = base64.encodestring(p.read())
+        conf['pbs_conf'] = pbs_cfg
+        # save hook files
+        hooks_str = self._save_hook_files()
+        conf.update(hooks_str)
+        conf['hooks'] = hooks_str
         qmgr = os.path.join(self.client_conf['PBS_EXEC'], 'bin', 'qmgr')
-
-        ret = self.du.run_cmd(self.client, [qmgr, '-c', 'p s'], sudo=True)
+        pbsnodes = os.path.join(self.client_conf['PBS_EXEC'], 'bin', 'pbsnodes')
+        ret = self.du.run_cmd(self.client, [qmgr, '-c', 'print server'], sudo=True)
         if ret['rc'] != 0:
             return False
         else:
             conf['qmgr_print_server'] = ret['out']
-
-        ret = self.du.run_cmd(self.hostname, [qmgr, '-c', 'p sched'],
+        ret = self.du.run_cmd(self.hostname, [qmgr, '-c', 'print sched'],
                               sudo=True)
         if ret['rc'] != 0:
             return False
         else:
             conf['qmgr_print_sched'] = ret['out']
-
-        ret = self.du.run_cmd(self.hostname, [qmgr, '-c', 'p h'], sudo=True)
-        if ret['rc'] != 0:
-            return False
-        else:
-            conf['qmgr_print_hook'] = ret['out']
-
+        ret = self.du.run_cmd(self.hostname, [pbsnodes, '-av'])
+        nodes_val = self.utils.convert_to_dictlist(ret['out'])
+        conf['pbsnodes'] = nodes_val
         try:
-            f = open(outfile, mode)
-            cPickle.dump(sconf, f)
-            f.close()
+            with open(outfile, mode) as f:
+                json.dump(conf, f)
         except:
             self.logger.error('Error processing file ' + outfile)
             return False
 
         return True
+
+    def _save_hook_files(self):
+        """
+        save all the hooks .CF, .PY, .HK files
+        """
+        cfg = {}
+        h_path = "/var/spool/pbs/server_priv/hooks/"
+        # save *.PY file
+        py_str = h_path+'*.PY'
+        py_files_list = glob.glob(py_str)
+        for pyfile in py_files_list:
+            with open(pyfile, "r") as f:
+                py_str = f.read()
+                py_b64_str = base64.encodestring(py_str)
+                cfg[pyfile] = py_b64_str
+        # save *.CF file
+        cf_str = h_path+'*.CF'
+        cf_files_list = glob.glob(cf_str)
+        for cffile in cf_files_list:
+            with open(cffile, "r") as f:
+                cf_str = f.read()
+                cf_b64_str = base64.encodestring(cf_str)
+                cfg[cffile] = cf_b64_str
+        # save *.HK file
+        hk_str = h_path+'*.HK'
+        hk_files_list = glob.glob(hk_str)
+        for hkfile in hk_files_list:
+            with open(hkfile, "r") as f:
+                hk_str = f.read()
+                hk_b64_str = base64.encodestring(hk_str)
+                cfg[hkfile] = hk_b64_str
+        return cfg
 
     def load_configuration(self, infile):
         """
@@ -6428,10 +6501,7 @@ class Server(PBSService):
         issue a management command to the server, e.g to set an
         attribute
 
-        Returns the return code of ``qmgr/pbs_manager()`` on
-        success, if expect is set to True, the return value is
-        that of the call to expect.Raises ``PbsManagerError`` on
-        error
+        Returns 0 for Success and non 0 number for Failure
 
         :param cmd: The command to issue,
                     ``MGR_CMD_[SET,UNSET, LIST,...]`` see pbs_ifl.h
@@ -6469,12 +6539,21 @@ class Server(PBSService):
                        i.e. silent mode
         :type logerr: bool
         :raises: PbsManagerError
-
-        When expect is ``False``, return the value, ``0/!0``
-        returned by pbs_manager
-        When expect is ``True``, return the value, ``True/False``,
-        returned by expect
+        :returns: On success:
+                - if expect is False, return code of qmgr/pbs_manager
+                - if expect is True, 0 for success
+        :raises: On Error/Failure:
+                - PbsManagerError if qmgr/pbs_manager() failed
+                - PtlExpectError if expect() failed
         """
+
+        # Currently, expect() doesn't validate the values being set for
+        # create operations.
+        # For unset operations, expect does not handle attributes that are
+        # reset to default after unset.
+        # So, only call expect automatically for set and delete operations.
+        if cmd in (MGR_CMD_SET, MGR_CMD_DELETE):
+            expect = True
 
         if isinstance(id, str):
             oid = id.split(',')
@@ -6680,23 +6759,31 @@ class Server(PBSService):
                 op = EQ
 
             # If scheduling is set to false then check for
-            # 'server_state' to be 'Idle'
+            # state to be idle
             if attrib and isinstance(attrib,
                                      dict) and 'scheduling' in attrib.keys():
                 if str(attrib['scheduling']) in PTL_FALSE:
-                    attrib['server_state'] = 'Idle'
+                    if obj_type == MGR_OBJ_SERVER:
+                        state_val = 'Idle'
+                        state_attr = ATTR_status
+                    else:   # SCHED object
+                        state_val = 'idle'
+                        state_attr = 'state'
+                    attrib[state_attr] = state_val
                     attrop = PTL_AND
 
             if oid is None:
-                return self.expect(obj_type, attrib, oid, op=op,
-                                   max_attempts=max_attempts,
-                                   attrop=attrop, offset=offset)
-            for i in oid:
-                rc = self.expect(obj_type, attrib, i, op=op,
-                                 max_attempts=max_attempts,
-                                 attrop=attrop, offset=offset)
-                if not rc:
-                    break
+                self.expect(obj_type, attrib, op=op,
+                            max_attempts=max_attempts,
+                            attrop=attrop, offset=offset)
+
+            else:
+                for i in oid:
+                    self.expect(obj_type, attrib, i, op=op,
+                                max_attempts=max_attempts,
+                                attrop=attrop, offset=offset)
+            rc = 0  # If we've reached here then expect passed, so return 0
+
         return rc
 
     def sigjob(self, jobid=None, signal=None, extend=None, runas=None,
@@ -8079,8 +8166,9 @@ class Server(PBSService):
                     PtlExpectError.
         :type msg: str or None
 
-        :returns: True if attributes are as expected and False
-                  otherwise
+        :returns: True if attributes are as expected
+
+        :raises: PtlExpectError if attributes are not as expected
         """
 
         if attempt == 0 and offset > 0:
@@ -8134,6 +8222,7 @@ class Server(PBSService):
 
         prefix = 'expect on ' + self.logprefix
         msg = []
+        attrs_to_ignore = []
         for k, v in attrib.items():
             args = None
             if isinstance(v, tuple):
@@ -8144,6 +8233,11 @@ class Server(PBSService):
             else:
                 operator = op
                 val = v
+            if operator not in PTL_OP_TO_STR:
+                self.logger.log(level, "Operator not supported by expect(), "
+                                "cannot verify change in " + str(k))
+                attrs_to_ignore.append(k)
+                continue
             msg += [k, PTL_OP_TO_STR[operator].strip()]
             if callable(val):
                 msg += ['callable(' + val.__name__ + ')']
@@ -8152,6 +8246,13 @@ class Server(PBSService):
             else:
                 msg += [str(val)]
             msg += [PTL_ATTROP_TO_STR[attrop]]
+
+        # Delete the attributes that we cannot verify
+        for k in attrs_to_ignore:
+            del(attrib[k])
+
+        if attrs_to_ignore and len(attrib) < 1 and op == SET:
+            return True
 
         # remove the last converted PTL_ATTROP_TO_STR
         if len(msg) > 1:
@@ -8187,8 +8288,8 @@ class Server(PBSService):
             except PbsStatusError:
                 statlist = []
 
-        if (len(statlist) == 0 or statlist[0] is None or
-                len(statlist[0]) == 0):
+        if (statlist is None or len(statlist) == 0 or
+                statlist[0] is None or len(statlist[0]) == 0):
             if op == UNSET or list(set(attrib.values())) == [0]:
                 self.logger.log(level, prefix + " ".join(msg) + ' ...  OK')
                 return True
@@ -8215,72 +8316,86 @@ class Server(PBSService):
                 v = v[1]
 
             for stat in statlist:
-                if k == ATTR_version and k in stat:
-                    m = self.version_tag.match(stat[k])
+                if k not in stat:
+                    if op == UNSET:
+                        continue
+
+                    # Sometimes users provide the wrong case for attributes
+                    # Convert to lowercase and compare
+                    attrs_lower = {
+                        ks.lower(): [ks, vs] for ks, vs in stat.iteritems()}
+                    k_lower = k.lower()
+                    if k_lower not in attrs_lower:
+                        self.logger.error("Attribute %s not found" % k)
+                        return False
+                    stat_v = attrs_lower[k_lower][1]
+                    stat_k = attrs_lower[k_lower][0]
+                else:
+                    stat_v = stat[k]
+                    stat_k = k
+
+                if stat_k == ATTR_version:
+                    m = self.version_tag.match(stat_v)
                     if m:
-                        stat[k] = m.group('version')
+                        stat_v = m.group('version')
                     else:
                         time.sleep(interval)
                         return self.expect(obj_type, attrib, id, op, attrop,
                                            attempt + 1, max_attempts, interval,
                                            count, extend, runas=runas,
                                            level=level, msg=" ".join(msg))
-                if k not in stat:
-                    if op == UNSET:
-                        continue
-                else:
-                    # functions/methods are invoked and their return value
-                    # used on expect
-                    if callable(v):
-                        if varargs is not None:
-                            rv = v(stat[k], *varargs)
-                        else:
-                            rv = v(stat[k])
-                        if isinstance(rv, bool):
-                            if op == NOT:
-                                if not rv:
-                                    continue
-                            if rv:
+
+                # functions/methods are invoked and their return value
+                # used on expect
+                if callable(v):
+                    if varargs is not None:
+                        rv = v(stat_v, *varargs)
+                    else:
+                        rv = v(stat_v)
+                    if isinstance(rv, bool):
+                        if op == NOT:
+                            if not rv:
                                 continue
-                        else:
-                            v = rv
+                        if rv:
+                            continue
+                    else:
+                        v = rv
 
-                    stat[k] = self.utils.decode_value(stat[k])
-                    v = self.utils.decode_value(v)
+                stat_v = self.utils.decode_value(stat_v)
+                v = self.utils.decode_value(str(v))
 
-                    if k == ATTR_version:
-                        stat[k] = LooseVersion(str(stat[k]))
-                        v = LooseVersion(str(v))
+                if stat_k == ATTR_version:
+                    stat_v = LooseVersion(str(stat_v))
+                    v = LooseVersion(str(v))
 
-                    if op == EQ and stat[k] == v:
+                if op == EQ and stat_v == v:
+                    continue
+                elif op == SET and count and stat_v == v:
+                    continue
+                elif op == SET and count in (False, None):
+                    continue
+                elif op == NE and stat_v != v:
+                    continue
+                elif op == LT:
+                    if stat_v < v:
                         continue
-                    elif op == SET and count and stat[k] == v:
+                elif op == GT:
+                    if stat_v > v:
                         continue
-                    elif op == SET and count in (False, None):
+                elif op == LE:
+                    if stat_v <= v:
                         continue
-                    elif op == NE and stat[k] != v:
+                elif op == GE:
+                    if stat_v >= v:
                         continue
-                    elif op == LT:
-                        if stat[k] < v:
-                            continue
-                    elif op == GT:
-                        if stat[k] > v:
-                            continue
-                    elif op == LE:
-                        if stat[k] <= v:
-                            continue
-                    elif op == GE:
-                        if stat[k] >= v:
-                            continue
-                    elif op == MATCH_RE:
-                        if re.search(str(v), str(stat[k])):
-                            continue
-                    elif op == MATCH:
-                        if str(stat[k]).find(str(v)) != -1:
-                            continue
+                elif op == MATCH_RE:
+                    if re.search(str(v), str(stat_v)):
+                        continue
+                elif op == MATCH:
+                    if str(stat_v).find(str(v)) != -1:
+                        continue
 
-                if k in stat:
-                    msg += [' got: ' + str(k) + ' = ' + str(stat[k])]
+                msg += [' got: ' + stat_k + ' = ' + str(stat_v)]
                 self.logger.info(prefix + " ".join(msg))
                 time.sleep(interval)
 
@@ -9419,6 +9534,16 @@ class Server(PBSService):
         :returns: True on success.
         :raises: PbsManagerError
         """
+        # sync_mom_hookfiles_timeout is 15min by default
+        # Setting it to lower value to avoid the race condition at hook copy
+        srv_stat = self.status(SERVER, 'sync_mom_hookfiles_timeout')
+        try:
+            sync_val = srv_stat[0]['sync_mom_hookfiles_timeout']
+        except:
+            self.logger.info("Setting sync_mom_hookfiles_timeout to 15s")
+            self.manager(MGR_CMD_SET, SERVER,
+                         {"sync_mom_hookfiles_timeout": 15})
+
         fn = self.du.create_temp_file(body=body)
 
         if not self._is_local:
@@ -9458,6 +9583,10 @@ class Server(PBSService):
                           Defaults to True
         :returns: True on success and False otherwise
         """
+        # Check for log messages 20 seconds earlier, to account for
+        # server and mom system time differences
+        t = int(time.time()) - 20
+
         if 'event' not in attrs:
             self.logger.error('attrs must specify at least an event and key')
             return False
@@ -9481,7 +9610,42 @@ class Server(PBSService):
 
         # In 12.0 A MoM hook must be enabled and the event set prior to
         # importing, otherwise the MoM does not get the hook content
-        return self.import_hook(name, body)
+        ret = self.import_hook(name, body)
+
+        # In case of mom hooks, make sure that the hook related files
+        # are successfully copied to the MoM
+        try:
+            if 'exec' in attrs['event']:
+                hook_py = name + '.PY'
+                hook_hk = name + '.HK'
+                pyfile = os.path.join(self.pbs_conf['PBS_HOME'],
+                                      "server_priv", "hooks", hook_py)
+                hfile = os.path.join(self.pbs_conf['PBS_HOME'],
+                                     "server_priv", "hooks", hook_hk)
+                logmsg = hook_py + ";copy hook-related file request received"
+
+                cmd = os.path.join(self.client_conf['PBS_EXEC'], 'bin',
+                                   'pbsnodes') + ' -a'
+                cmd_out = self.du.run_cmd(self.hostname, cmd, sudo=True)
+                if cmd_out['rc'] == 0:
+                    for i in cmd_out['out']:
+                        if re.match(r'\s+Mom = ', i):
+                            mom_names = i.split(' = ')[1].split(',')
+                            for m in mom_names:
+                                if m in self.moms:
+                                    self.log_match(
+                                        "successfully sent hook file %s to %s"
+                                        % (hfile, m), interval=1)
+                                    self.log_match(
+                                        "successfully sent hook file %s to %s"
+                                        % (pyfile, m), interval=1)
+                                    self.moms[m].log_match(logmsg, starttime=t)
+                else:
+                    return False
+        except PtlLogMatchError:
+            return False
+
+        return ret
 
     def evaluate_formula(self, jobid=None, formula=None, full=True,
                          include_running_jobs=False, exclude_subjobs=True):
@@ -10623,7 +10787,7 @@ class Scheduler(PBSService):
         return self.start()
 
     def log_match(self, msg=None, id=None, n=50, tail=True, allmatch=False,
-                  regexp=False, day=None, max_attempts=None, interval=None,
+                  regexp=False, max_attempts=None, interval=None,
                   starttime=None, endtime=None, level=logging.INFO,
                   existence=True):
         """
@@ -10648,8 +10812,6 @@ class Scheduler(PBSService):
         :param regexp: If true msg is a Python regular expression.
                        Defaults to False
         :type regexp: bool
-        :param day: Optional day in YYYMMDD format.
-        :type day: str
         :param max_attempts: the number of attempts to make to find
                              a matching entry
         :type max_attempts: int
@@ -10682,7 +10844,7 @@ class Scheduler(PBSService):
         .. note:: The matching line number is relative to the record
                   number, not the absolute line number in the file.
         """
-        return self._log_match(self, msg, id, n, tail, allmatch, regexp, day,
+        return self._log_match(self, msg, id, n, tail, allmatch, regexp,
                                max_attempts, interval, starttime, endtime,
                                level=level, existence=existence)
 
@@ -12638,7 +12800,7 @@ class MoM(PBSService):
         return self.start()
 
     def log_match(self, msg=None, id=None, n=50, tail=True, allmatch=False,
-                  regexp=False, day=None, max_attempts=None, interval=None,
+                  regexp=False, max_attempts=None, interval=None,
                   starttime=None, endtime=None, level=logging.INFO,
                   existence=True):
         """
@@ -12663,8 +12825,6 @@ class MoM(PBSService):
         :param regexp: If true msg is a Python regular expression.
                        Defaults to False
         :type regexp: bool
-        :param day: Optional day in YYYMMDD format.
-        :type day: str
         :param max_attempts: the number of attempts to make to find
                              a matching entry
         :type max_attempts: int
@@ -12697,7 +12857,7 @@ class MoM(PBSService):
         .. note:: The matching line number is relative to the record
                   number, not the absolute line number in the file.
         """
-        return self._log_match(self, msg, id, n, tail, allmatch, regexp, day,
+        return self._log_match(self, msg, id, n, tail, allmatch, regexp,
                                max_attempts, interval, starttime, endtime,
                                level, existence)
 
@@ -13661,7 +13821,8 @@ class Job(ResourceResv):
         :returns: subjob id string
         """
         idx = job_array_id.find('[]')
-        return job_array_id[:idx+1] + str(subjob_index) + job_array_id[idx+1:]
+        return job_array_id[:idx + 1] + str(subjob_index) + \
+            job_array_id[idx + 1:]
 
 
 class Reservation(ResourceResv):
