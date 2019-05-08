@@ -4307,7 +4307,7 @@ class PBSService(PBSObject):
                                 fn = self.du.create_temp_file()
                                 with open(fn, 'w') as fd:
                                     fd.write(hook_py_str)
-                                import_py_cmd = qmgr+" -c 'i h cloud_hook application/x-python default %s'"%fn
+                                import_py_cmd = qmgr+" -c 'i h %s application/x-python default %s'"%(hook_name, fn)
                                 self.du.run_cmd(self.hostname, import_py_cmd, sudo=True, as_script=True)
                                 #os.unlink(fn)
                             if cf_hpath in conf['hooks']:
@@ -4316,7 +4316,7 @@ class PBSService(PBSObject):
                                 fn = self.du.create_temp_file()
                                 with open(fn, 'w') as fd:
                                     fd.write(hook_cf_str)
-                                import_cfg_cmd = qmgr+" -c 'i h cloud_hook application/x-config default %s'"%fn
+                                import_cfg_cmd = qmgr+" -c 'i h %s application/x-config default %s'"%(hook_name ,fn)
                                 self.du.run_cmd(self.hostname, import_cfg_cmd, sudo=True, as_script=True)
                                 #os.unlink(fn)
                     os.remove(fn)
