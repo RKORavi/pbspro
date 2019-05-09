@@ -5286,8 +5286,19 @@ class Server(PBSService):
         save all the hooks .CF, .PY, .HK files
         """
         cfg = {}
-        h_path = "/var/spool/pbs/server_priv/hooks/"
+        h_path =  os.path.join(self.pbs_conf['PBS_HOME'], 'server_priv', 'hooks')
+        f_suffix = ['*.PY', '*.HK', '*.CF']
+        for fs in f_suffix:
+            path_str = h_path+os.sep+fs
+            files_list = glob.glob(path_str)
+            for f_name in files_list:
+                with open(f_name, "r") as f:
+                    file_str = f.read()
+                    file_base64_str = base64.encodestring(file_str)
+                    cfg[f_name] = file_base64_str
+        """
         # save *.PY file
+        
         py_str = h_path+'*.PY'
         py_files_list = glob.glob(py_str)
         for pyfile in py_files_list:
@@ -5311,6 +5322,7 @@ class Server(PBSService):
                 hk_str = f.read()
                 hk_b64_str = base64.encodestring(hk_str)
                 cfg[hkfile] = hk_b64_str
+        """
         return cfg
 
     def load_configuration(self, infile):
