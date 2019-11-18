@@ -137,15 +137,22 @@ sleep 5
 
         return self.server.submit(retjob)
 
-    def check_jobout(self, chk_var, jid, job_outfile):
+    def check_jobout(self, chk_var, jid, job_outfile, host=None):
         """
         Check if unescaped variable is in job output
         """
         self.server.expect(JOB, 'queue', op=UNSET, id=jid, offset=1)
-        ret = self.du.cat(filename=job_outfile)
-        job_out = '\n'.join(ret['out'])
-        self.logger.info('job output from %s:\n%s' % (job_outfile, job_out))
+        ret = self.du.cat(hostname=host, filename=job_outfile)
+        j_output = ret['out'][0].strip()
         job_output = ""
+        if host and not self.du.is_localhost(host):
+            src_path = "%s@%s:%s" % (self.du.get_current_user(),
+                                     host, job_outfile)
+            dest_path = job_outfile
+            self.du.run_copy(hosts=self.server.hostname,
+                             src=src_path,
+                             dest=dest_path,
+                             sudo=True)
         with open(job_outfile, 'r', newline="") as f:
             job_output = f.read().strip()
         self.assertEqual(job_output, chk_var)
@@ -257,6 +264,8 @@ sleep 5
         test exporting the character in environment variable
         when -V is in the server's default_qsub_arguments.
         """
+        user = PbsUser.get_user(TEST_USER)
+        host = user.host
         for ch in self.npcat:
             self.logger.info('##### non-printable char: %s #####' % repr(ch))
             if ch in self.npch_exclude:
@@ -271,16 +280,22 @@ sleep 5
                                 {'default_qsub_arguments': '-V'})
             script = ['sleep 5']
             script += ['env | grep NONPRINT_VAR']
-            j = Job(self.du.get_current_user())
+            j = Job(TEST_USER)
             j.create_script(body=script)
-            jid = self.server.submit(j)
+            exp = "export NONPRINT_VAR=\"X%sY\"" % ch
+            file_n = j.create_script(body=script)
+            script = [exp]
+            script += ['/opt/pbs/bin/qsub %s' % file_n]
+            j.create_script(body=script)
+            jid = self.server.submit(j, qsub_from_script=True)
             # Check if qstat -f output contains the escaped character
             self.check_qstatout(chk_var, jid)
             # Check if job output contains the character
             qstat = self.server.status(JOB, ATTR_o, id=jid)
             job_outfile = qstat[0][ATTR_o].split(':')[1]
+            job_host = qstat[0][ATTR_o].split(':')[0]
             chk_var = 'NONPRINT_VAR=X%sY' % ch
-            self.check_jobout(chk_var, jid, job_outfile)
+            self.check_jobout(chk_var, jid, job_outfile, job_host)
 
     def test_nonprint_shell_function(self):
         """

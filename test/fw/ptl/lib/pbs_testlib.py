@@ -5903,7 +5903,8 @@ class Server(PBSService):
             continue
         return ij.jobid
 
-    def submit(self, obj, script=None, extend=None, submit_dir=None):
+    def submit(self, obj, script=None, extend=None, submit_dir=None,
+               qsub_from_script=False):
         """
         Submit a job or reservation. Returns a job identifier
         or raises PbsSubmitError on error
@@ -5981,8 +5982,9 @@ class Server(PBSService):
         c = None
         # 1- Submission using the command line tools
         if self.get_op_mode() == PTL_CLI:
+            runcmd = []
             exclude_attrs = []  # list of attributes to not convert to CLI
-            if isinstance(obj, Job):
+            if isinstance(obj, Job) and not qsub_from_script:
                 runcmd = [os.path.join(self.client_conf['PBS_EXEC'], 'bin',
                                        'qsub')]
             elif isinstance(obj, Reservation):
