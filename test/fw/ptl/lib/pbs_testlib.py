@@ -5904,7 +5904,7 @@ class Server(PBSService):
         return ij.jobid
 
     def submit(self, obj, script=None, extend=None, submit_dir=None,
-               qsub_from_script=False):
+               env_set={}):
         """
         Submit a job or reservation. Returns a job identifier
         or raises PbsSubmitError on error
@@ -5925,7 +5925,7 @@ class Server(PBSService):
         _interactive_job = False
         as_script = False
         rc = None
-
+        run_str = ""
         if isinstance(obj, Job):
             if self.platform == 'cray' or self.platform == 'craysim':
                 m = False
@@ -5981,15 +5981,31 @@ class Server(PBSService):
             os.chdir(submit_dir)
         c = None
         # 1- Submission using the command line tools
+        runcmd = []
+        exp_str = ""
+        if len(env_set) > 0:
+            if '()' in list(env_set.keys())[0]:
+                func = list(env_set.keys())[0]
+                f_body = list(env_set.values())[0]
+                f_name = func.replace('()', '')
+                runcmd += [func, f_body, "\n", "export", "-f", f_name]
+            else:
+                exp_str = "export "
+                runcmd += ['export']
+                for k, v in env_set.items():
+                    exp_str = "%s=\"%s\"" % (k, v)
+                    runcmd += [exp_str]
+            runcmd += "\n"
+
+        script_file = None
         if self.get_op_mode() == PTL_CLI:
-            runcmd = []
             exclude_attrs = []  # list of attributes to not convert to CLI
-            if isinstance(obj, Job) and not qsub_from_script:
-                runcmd = [os.path.join(self.client_conf['PBS_EXEC'], 'bin',
-                                       'qsub')]
+            if isinstance(obj, Job):
+                runcmd += [os.path.join(self.client_conf['PBS_EXEC'], 'bin',
+                                        'qsub')]
             elif isinstance(obj, Reservation):
-                runcmd = [os.path.join(self.client_conf['PBS_EXEC'], 'bin',
-                                       'pbs_rsub')]
+                runcmd += [os.path.join(self.client_conf['PBS_EXEC'], 'bin',
+                                        'pbs_rsub')]
                 if ATTR_resv_start in obj.custom_attrs:
                     start = obj.custom_attrs[ATTR_resv_start]
                     obj.custom_attrs[ATTR_resv_start] = \
@@ -6032,7 +6048,6 @@ class Server(PBSService):
                 except OSError:
                     pass
                 return None
-
             runcmd += cmd
 
             if script:
@@ -6071,10 +6086,18 @@ class Server(PBSService):
                 runcmd = [
                     'PBS_CONF_FILE=' + self.client_pbs_conf_file] + runcmd
                 as_script = True
-
+            if len(env_set) > 0:
+                user = PbsUser.get_user(TEST_USER)
+                host = user.host
+                run_str = " "
+                run_str = run_str.join(runcmd)
+                script_file = self.du.create_temp_file(hostname=host,
+                                                       body=run_str)
+                self.du.chmod(hostname=host, path=script_file, mode=0o755)
+                runcmd = [script_file]
             ret = self.du.run_cmd(self.client, runcmd, runas=runas,
                                   level=logging.INFOCLI, as_script=as_script,
-                                  logerr=False)
+                                  env=env_set, logerr=False)
             if ret['rc'] != 0:
                 objid = None
             else:
