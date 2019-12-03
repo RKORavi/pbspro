@@ -144,9 +144,7 @@ sleep 5
         self.server.expect(JOB, 'queue', op=UNSET, id=jid, offset=1)
         if not self.du.is_localhost(host):
             host = None
-        ret = self.du.cat(hostname=host, filename=job_outfile)
-        if len(ret['out']) > 0:
-            j_output = ret['out'][0].strip()
+        #ret = self.du.cat(hostname=host, filename=job_outfile)
         job_output = ""
         if host and not self.du.is_localhost(host):
             src_path = "%s@%s:%s" % (self.du.get_current_user(),
