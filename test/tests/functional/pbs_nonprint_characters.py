@@ -135,15 +135,13 @@ sleep 5
             retjob.interactive_script = content_interactive
             retjob.preserve_env = preserve_env
 
-        return self.server.submit(retjob, env_set=set_env)
+        return self.server.submit(retjob, env=set_env)
 
     def check_jobout(self, chk_var, jid, job_outfile, host=None):
         """
         Check if unescaped variable is in job output
         """
         self.server.expect(JOB, 'queue', op=UNSET, id=jid, offset=1)
-        if not self.du.is_localhost(host):
-            host = None
         ret = self.du.cat(hostname=host, filename=job_outfile)
         if len(ret['out']) > 0:
             j_output = ret['out'][0].strip()
@@ -256,7 +254,7 @@ sleep 5
             j.create_script(body=script)
             xval = "X%sY" % ch
             env_to_set = {"NONPRINT_VAR": xval}
-            jid = self.server.submit(j, env_set=env_to_set)
+            jid = self.server.submit(j, env=env_to_set)
             # Check if qstat -f output contains the escaped character
             self.check_qstatout(chk_var, jid)
             # Check if job output contains the character
@@ -293,7 +291,7 @@ sleep 5
             j.create_script(body=script)
             xval = "X%sY" % ch
             env_to_set = {"NONPRINT_VAR": xval}
-            jid = self.server.submit(j, env_set=env_to_set)
+            jid = self.server.submit(j, env=env_to_set)
             # Check if qstat -f output contains the escaped character
             self.check_qstatout(chk_var, jid)
             # Check if job output contains the character
@@ -396,7 +394,7 @@ sleep 5
         j = Job(TEST_USER, attrs=a)
         file_n = j.create_script(body=job_script)
         env_vals = {"VAR_IN_TERM": exp}
-        jid = self.server.submit(j, env_set=env_vals)
+        jid = self.server.submit(j, env=env_vals)
         # Check if qstat -f output contains the escaped character
         self.check_qstatout(chk_var, jid)
         # Check if job output contains the character
@@ -422,7 +420,7 @@ sleep 5
         env_to_set = {"VAR_IN_TERM": exp}
         j = Job(TEST_USER)
         j.create_script(body=script)
-        jid = self.server.submit(j, env_set=env_to_set)
+        jid = self.server.submit(j, env=env_to_set)
         # Check if qstat -f output contains the escaped character
         self.check_qstatout(chk_var, jid)
         # Check if job output contains the character
@@ -694,7 +692,7 @@ sleep 5
             a = {self.ATTR_V: None, ATTR_J: '1-2'}
             j = Job(TEST_USER, attrs=a)
             j.create_script(body=script)
-            jid = self.server.submit(j, env_set=set_env)
+            jid = self.server.submit(j, env=set_env)
             subj1 = jid.replace('[]', '[1]')
             subj2 = jid.replace('[]', '[2]')
             # Check if qstat -f output contains the escaped character
@@ -726,7 +724,7 @@ sleep 5
         a = {self.ATTR_V: None, ATTR_J: '1-2'}
         j = Job(TEST_USER, attrs=a)
         j.create_script(body=script)
-        jid = self.server.submit(j, env_set=env_vals)
+        jid = self.server.submit(j, env=env_vals)
         subj1 = jid.replace('[]', '[1]')
         subj2 = jid.replace('[]', '[2]')
         # Check if qstat -f output contains the escaped character
@@ -747,6 +745,7 @@ sleep 5
         self.check_jobout(chk_var, subj2, job_outfile2, job_host)
         self.logger.info('%sReset terminal' % self.reset)
 
+    @skipOnShasta
     @checkModule("pexpect")
     def test_nonprint_character_interactive_job(self):
         """
@@ -795,17 +794,19 @@ sleep 5
             self.logger.info(
                 "non-printable %s was in interactive job environment"
                 % repr(np_char))
-    """
+
+    @skipOnShasta
     @checkModule("pexpect")
     def test_terminal_control_interactive_job(self):
+        """
         Using terminal control characters test exporting them
         in environment variable of interactive job
         when qsub -V is passed through command line.
+        """
         # variable to check if with escaped nonprinting character
         chk_var = 'NONPRINT_VAR=X\,%s\,%s\,Y' % (self.bold_esc, self.red_esc)
         var = "X,%s,%s,Y" % (self.bold, self.red)
-        #os.environ["NONPRINT_VAR"] = var
-        env_val = {"NONPRINT_VAR":var}
+        os.environ["NONPRINT_VAR"] = var
         fn = self.du.create_temp_file(prefix="job_out1")
         self.job_out1_tempfile = fn
         # submit an interactive job
@@ -816,7 +817,7 @@ sleep 5
         jid = self.create_and_submit_job(
             attribs=a,
             content_interactive=interactive_script,
-            preserve_env=True, set_env=env_val)
+            preserve_env=True)
         # Check if qstat -f output contains the escaped character
         self.check_qstatout(chk_var, jid)
         # Once all commands sent and matched, job exits
@@ -841,7 +842,6 @@ sleep 5
         self.logger.info(
             "non-printables were in interactive job environment %s"
             % repr(var_env))
-    """
 
     def test_terminal_control_begin_launch_hook(self):
         """

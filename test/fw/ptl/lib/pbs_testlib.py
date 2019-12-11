@@ -5904,7 +5904,7 @@ class Server(PBSService):
         return ij.jobid
 
     def submit(self, obj, script=None, extend=None, submit_dir=None,
-               env_set={}):
+               env=None):
         """
         Submit a job or reservation. Returns a job identifier
         or raises PbsSubmitError on error
@@ -5983,17 +5983,16 @@ class Server(PBSService):
         # 1- Submission using the command line tools
         runcmd = []
         exp_str = ""
-        if len(env_set) > 0:
-            if '()' in list(env_set.keys())[0]:
-                func = list(env_set.keys())[0]
-                f_body = list(env_set.values())[0]
-                f_name = func.replace('()', '')
-                runcmd += [func, f_body, "\n", "export", "-f", f_name]
-            else:
-                exp_str = "export "
-                runcmd += ['export']
-                for k, v in env_set.items():
-                    exp_str = "%s=\"%s\"" % (k, v)
+        if env:
+            runcmd += ['#!/bin/bash\n']
+            for k, v in env.items():
+                if '()' in k:
+                    f_name = k.replace('()', '')
+                    runcmd += [k, v, "\n", "export", "-f", f_name]
+                else:
+                    if 'export' not in runcmd:
+                        runcmd += ['export']
+                    exp_str = "%s=\"%s\" " % (k, v)
                     runcmd += [exp_str]
             runcmd += "\n"
 
@@ -6086,8 +6085,8 @@ class Server(PBSService):
                 runcmd = [
                     'PBS_CONF_FILE=' + self.client_pbs_conf_file] + runcmd
                 as_script = True
-            if len(env_set) > 0:
-                user = PbsUser.get_user(TEST_USER)
+            if env:
+                user = PbsUser.get_user(obj.username)
                 host = user.host
                 run_str = " "
                 run_str = run_str.join(runcmd)
@@ -6097,7 +6096,7 @@ class Server(PBSService):
                 runcmd = [script_file]
             ret = self.du.run_cmd(self.client, runcmd, runas=runas,
                                   level=logging.INFOCLI, as_script=as_script,
-                                  env=env_set, logerr=False)
+                                  env=env, logerr=False)
             if ret['rc'] != 0:
                 objid = None
             else:
