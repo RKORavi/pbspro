@@ -146,6 +146,8 @@ sleep 5
         if len(ret['out']) > 0:
             j_output = ret['out'][0].strip()
         job_output = ""
+        self.logger.info("JOB_HOST = ------- %s" % host)
+        self.logger.info("SERVER HOST = ------- %s" % self.server.hostname)
         if host and not self.du.is_localhost(host):
             src_path = "%s@%s:%s" % (self.du.get_current_user(),
                                      host, job_outfile)
