@@ -148,7 +148,8 @@ sleep 5
         job_output = ""
         self.logger.info("JOB_HOST = ------- %s" % host)
         self.logger.info("SERVER HOST = ------- %s" % self.server.hostname)
-        if host and not self.du.is_localhost(host):
+        # check if job host and server host are same
+        if host == self.server.hostname:
             src_path = "%s@%s:%s" % (self.du.get_current_user(),
                                      host, job_outfile)
             dest_path = job_outfile
