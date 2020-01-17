@@ -142,7 +142,7 @@ sleep 5
         Check if unescaped variable is in job output
         """
         self.server.expect(JOB, 'queue', op=UNSET, id=jid, offset=1)
-        ret = self.du.cat(hostname=host, filename=job_outfile, option="-v")
+        ret = self.du.cat(hostname=host, sudo=True, filename=job_outfile, option="-v")
         j_output = ""
         if len(ret['out']) > 0:
             if len(ret['out']) > 1:
@@ -861,7 +861,7 @@ sleep 5
         """
         # variable to check if with escaped nonprinting character
         chk_var = 'NONPRINT_VAR=X\,%s\,%s\,Y' % (self.bold_esc, self.red_esc)
-        var = "X,%s,%s,Y" % (self.bold, self.red)
+        var = "X,%s,%s,Y" % (self.bold_esc, self.red_esc)
         env_vals = {"NONPRINT_VAR": var}
         a = {'Resource_List.select': '1:ncpus=1',
              'Resource_List.walltime': 3,
@@ -908,20 +908,14 @@ e.env["LAUNCH_NONPRINT"] = "CD"
         job_outfile = qstat[0][ATTR_o].split(':')[1]
         job_host = qstat[0][ATTR_o].split(':')[0]
         self.server.expect(JOB, 'queue', op=UNSET, id=jid, offset=3)
-        if job_host and not self.du.is_localhost(job_host):
-            src_path = "%s@%s:%s" % (self.du.get_current_user(),
-                                     job_host, job_outfile)
-            dest_path = job_outfile
-            self.du.run_copy(hosts=self.server.hostname,
-                             src=src_path, dest=dest_path, sudo=True)
-        with open(job_outfile) as fd:
-            pkey = ""
-            penv = {}
-            for line in fd:
-                l = line.split('=', 1)
-                if len(l) == 2:
-                    pkey = l[0]
-                    penv[pkey] = l[1]
+        ret = self.du.cat(hostname=job_host, filename=job_outfile, sudo=True, option="-v")
+        j_output = ret['out']
+        penv = {}
+        for line in j_output:
+            l = line.split('=', 1)
+            if len(l) == 2:
+                pkey = l[0]
+                penv[pkey] = l[1]
         np_var = penv['NONPRINT_VAR']
         self.logger.info("np_var: %s" % repr(np_var))
         np_char1 = np_var.split(',')[1]
