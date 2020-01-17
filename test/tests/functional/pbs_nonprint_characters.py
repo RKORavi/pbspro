@@ -142,22 +142,14 @@ sleep 5
         Check if unescaped variable is in job output
         """
         self.server.expect(JOB, 'queue', op=UNSET, id=jid, offset=1)
-        ret = self.du.cat(hostname=host, filename=job_outfile)
+        ret = self.du.cat(hostname=host, filename=job_outfile, option="-v")
+        j_output = ""
         if len(ret['out']) > 0:
-            j_output = ret['out'][0].strip()
-        job_output = ""
-        self.logger.info("JOB_HOST = ------- %s" % host)
-        self.logger.info("SERVER HOST = ------- %s" % self.server.hostname)
-        # check if job host and server host are same
-        if host != self.server.hostname:
-            src_path = "%s@%s:%s" % (self.du.get_current_user(),
-                                     host, job_outfile)
-            dest_path = job_outfile
-            self.du.run_copy(hosts=self.server.hostname,
-                             src=src_path, dest=dest_path, sudo=True)
-        with open(job_outfile, 'r', newline="") as f:
-            job_output = f.read().strip()
-        self.assertEqual(job_output, chk_var)
+            if len(ret['out']) > 1:
+                j_output = '\n'.join(ret['out'])
+            else:
+                j_output = ret['out'][0].strip()
+        self.assertEqual(j_output, chk_var)
         self.logger.info('job output has: %s' % chk_var)
 
     def check_qstatout(self, chk_var, jid):
@@ -201,7 +193,10 @@ sleep 5
             qstat = self.server.status(JOB, ATTR_o, id=jid)
             job_outfile = qstat[0][ATTR_o].split(':')[1]
             job_host = qstat[0][ATTR_o].split(':')[0]
-            chk_var = "var1=A,B,%s,C,D" % ch
+            if ch == '\x09':
+                chk_var = "var1=A,B,%s,C,D" % ch
+            else:
+                chk_var = "var1=A,B,%s,C,D" % self.npcat[ch]
             self.check_jobout(chk_var, jid, job_outfile, job_host)
 
     def test_nonprint_character_directive(self):
@@ -231,7 +226,10 @@ sleep 5
             qstat = self.server.status(JOB, ATTR_o, id=jid)
             job_outfile = qstat[0][ATTR_o].split(':')[1]
             job_host = qstat[0][ATTR_o].split(':')[0]
-            chk_var = "var1=A,B,%s,C,D" % ch
+            if ch == '\x09':
+                chk_var = "var1=A,B,%s,C,D" % ch
+            else:
+                chk_var = "var1=A,B,%s,C,D" % self.npcat[ch]
             self.check_jobout(chk_var, jid, job_outfile, job_host)
 
     def test_nonprint_character_qsubV(self):
@@ -264,7 +262,10 @@ sleep 5
             qstat = self.server.status(JOB, ATTR_o, id=jid)
             job_outfile = qstat[0][ATTR_o].split(':')[1]
             job_host = qstat[0][ATTR_o].split(':')[0]
-            chk_var = 'NONPRINT_VAR=X%sY' % ch
+            if ch == '\x09':
+                chk_var = 'NONPRINT_VAR=X%sY' % ch
+            else:
+                chk_var = 'NONPRINT_VAR=X%sY' % self.npcat[ch]
             self.check_jobout(chk_var, jid, job_outfile, job_host)
 
     def test_nonprint_character_default_qsubV(self):
@@ -301,7 +302,10 @@ sleep 5
             qstat = self.server.status(JOB, ATTR_o, id=jid)
             job_outfile = qstat[0][ATTR_o].split(':')[1]
             job_host = qstat[0][ATTR_o].split(':')[0]
-            chk_var = 'NONPRINT_VAR=X%sY' % ch
+            if ch == '\x09':
+                chk_var = 'NONPRINT_VAR=X%sY' % ch
+            else:
+                chk_var = 'NONPRINT_VAR=X%sY' % self.npcat[ch]
             self.check_jobout(chk_var, jid, job_outfile, job_host)
 
     def test_nonprint_shell_function(self):
@@ -327,7 +331,7 @@ sleep 5
             if ch in self.npch_asis:
                 chk_var = self.n + '=() {  a=%s; echo XX${a}YY}\n}' % ch
             out = self.n + \
-                '=() {  a=%s;\n echo XX${a}YY}\n}\nXX%sYY}' % (ch, ch)
+                '=() {  a=%s;\n echo XX${a}YY}\n}\nXX%sYY}' % (self.npcat[ch], self.npcat[ch])
             jid = self.create_and_submit_job(content=self.script,
                                              set_env=env_vals)
             # Check if qstat -f output contains the escaped character
@@ -356,7 +360,7 @@ sleep 5
         qstat = self.server.status(JOB, ATTR_o, id=jid)
         job_outfile = qstat[0][ATTR_o].split(':')[1]
         job_host = qstat[0][ATTR_o].split(':')[0]
-        match = "var1=X%s%sY" % (self.bold, self.red)
+        match = "var1=X%s%sY" % (self.bold_esc, self.red_esc)
         self.check_jobout(match, jid, job_outfile, job_host)
         # Reset the terminal
         self.logger.info('%sReset terminal' % self.reset)
@@ -379,7 +383,7 @@ sleep 5
         qstat = self.server.status(JOB, ATTR_o, id=jid)
         job_outfile = qstat[0][ATTR_o].split(':')[1]
         job_host = qstat[0][ATTR_o].split(':')[0]
-        match = "var1=X%s%sY" % (self.bold, self.red)
+        match = "var1=X%s%sY" % (self.bold_esc, self.red_esc)
         self.check_jobout(match, jid, job_outfile, job_host)
         # Reset the terminal
         self.logger.info('%sReset terminal' % self.reset)
@@ -404,7 +408,7 @@ sleep 5
         qstat = self.server.status(JOB, ATTR_o, id=jid)
         job_outfile = qstat[0][ATTR_o].split(':')[1]
         job_host = qstat[0][ATTR_o].split(':')[0]
-        chk_var = 'VAR_IN_TERM=X%s%sY' % (self.bold, self.red)
+        chk_var = 'VAR_IN_TERM=X%s%sY' % (self.bold_esc, self.red_esc)
         self.check_jobout(chk_var, jid, job_outfile, job_host)
         # Reset the terminal
         self.logger.info('%sReset terminal' % self.reset)
@@ -430,7 +434,7 @@ sleep 5
         qstat = self.server.status(JOB, ATTR_o, id=jid)
         job_outfile = qstat[0][ATTR_o].split(':')[1]
         job_host = qstat[0][ATTR_o].split(':')[0]
-        chk_var = 'VAR_IN_TERM=X%s%sY' % (self.bold, self.red)
+        chk_var = 'VAR_IN_TERM=X%s%sY' % (self.bold_esc, self.red_esc)
         self.check_jobout(chk_var, jid, job_outfile, job_host)
         # Reset the terminal
         self.logger.info('%sReset terminal' % self.reset)
@@ -446,7 +450,7 @@ sleep 5
         chk_var = self.n + '=() {  a=$(%s; %s); echo XX${a}YY\n}' % (
             self.bold_esc, self.red_esc)
         out = self.n + '=() {  a=$(%s; %s);\n echo XX${a}YY\n}\nXXYY' % (
-            self.bold, self.red)
+            self.bold_esc, self.red_esc)
         jid = self.create_and_submit_job(content=self.script, set_env=env_vals)
         # Check if qstat -f output contains the escaped character
         self.check_qstatout(chk_var, jid)
@@ -710,7 +714,10 @@ sleep 5
                 job_outfile1 = job_outfile1.replace('^array_index^', '1')
             job_outfile2 = job_outfile1.replace('.1', '.2')
             # Check if job array output contains the character as is
-            chk_var = 'NONPRINT_VAR=X%sY' % ch
+            if ch == '\x09':
+                chk_var = 'NONPRINT_VAR=X%sY' % ch
+            else:
+                chk_var = 'NONPRINT_VAR=X%sY' % self.npcat[ch]
             self.check_jobout(chk_var, subj1, job_outfile1, job_host)
             self.check_jobout(chk_var, subj2, job_outfile2, job_host)
 
@@ -742,7 +749,7 @@ sleep 5
             job_outfile1 = job_outfile1.replace('^array_index^', '1')
         job_outfile2 = job_outfile1.replace('.1', '.2')
         # Check if job array output contains the character as is
-        chk_var = 'NONPRINT_VAR=X%s%sY' % (self.bold, self.red)
+        chk_var = 'NONPRINT_VAR=X%s%sY' % (self.bold_esc, self.red_esc)
         self.check_jobout(chk_var, subj1, job_outfile1, job_host)
         self.logger.info('%sReset terminal' % self.reset)
         self.check_jobout(chk_var, subj2, job_outfile2, job_host)
