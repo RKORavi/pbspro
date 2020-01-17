@@ -89,7 +89,7 @@ unset -f foo
 exit 0
 """
         self.script = """#PBS -V
-env | grep -A2 foo
+env | grep -A2 BASH_FUNC_foo
 foo
 sleep 5
 """
