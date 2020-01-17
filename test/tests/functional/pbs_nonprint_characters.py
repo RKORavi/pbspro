@@ -149,6 +149,8 @@ sleep 5
                 j_output = '\n'.join(ret['out'])
             else:
                 j_output = ret['out'][0].strip()
+        print("JOUT ---------------------------- %s" % j_output)
+        print("CHECK VAR ------------------------ %s" % chk_var)
         self.assertEqual(j_output, chk_var)
         self.logger.info('job output has: %s' % chk_var)
 
