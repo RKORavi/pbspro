@@ -5996,7 +5996,7 @@ class Server(PBSService):
                         runcmd += ['export']
                     exp_str = "%s=\"%s\" " % (k, v)
                     runcmd += [exp_str]
-            runcmd += "\n"
+            runcmd += ["\n"]
 
         script_file = None
         if self.get_op_mode() == PTL_CLI:
@@ -6090,8 +6090,7 @@ class Server(PBSService):
             if env:
                 user = PbsUser.get_user(obj.username)
                 host = user.host
-                run_str = " "
-                run_str = run_str.join(runcmd)
+                run_str = " ".join(runcmd)
                 script_file = self.du.create_temp_file(hostname=host,
                                                        body=run_str)
                 self.du.chmod(hostname=host, path=script_file, mode=0o755)

@@ -113,7 +113,7 @@ sleep 5
         self.pbsnodes_cmd = os.path.join(self.server.pbs_conf['PBS_EXEC'],
                                          'bin', 'pbsnodes')
 
-    def create_and_submit_job(self, user=None, attribs=None, content=None,
+    def create_and_submit_job(self, attribs=None, content=None,
                               content_interactive=None, preserve_env=False,
                               set_env={}):
         """
@@ -121,8 +121,6 @@ sleep 5
         attributes list 'attribs' script 'content' or 'content_interactive',
         and to 'preserve_env' if interactive job.
         """
-        # A user=None value means job will be executed by current user
-        # where the environment is set up
         if attribs is None:
             use_attribs = {}
         else:
