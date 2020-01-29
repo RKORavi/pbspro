@@ -6072,9 +6072,7 @@ class Server(PBSService):
                     f_name = k.replace('()', '')
                     runcmd += [k, v, "\n", "export", "-f", f_name]
                 else:
-                    runcmd += ['export']
-                    exp_str = "%s=\"%s\"" % (k, v)
-                    runcmd += [exp_str]
+                    runcmd += ['export %s=\"%s\"' % (k, v)]
                 runcmd += ["\n"]
 
         script_file = None
