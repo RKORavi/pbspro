@@ -6072,11 +6072,10 @@ class Server(PBSService):
                     f_name = k.replace('()', '')
                     runcmd += [k, v, "\n", "export", "-f", f_name]
                 else:
-                    if 'export' not in runcmd:
-                        runcmd += ['export']
-                    exp_str = "%s=\"%s\" " % (k, v)
+                    runcmd += ['export']
+                    exp_str = "%s=\"%s\"" % (k, v)
                     runcmd += [exp_str]
-            runcmd += ["\n"]
+                runcmd += ["\n"]
 
         script_file = None
         if self.get_op_mode() == PTL_CLI:
