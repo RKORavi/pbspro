@@ -860,7 +860,7 @@ sleep 5
         """
         # variable to check if with escaped nonprinting character
         chk_var = r'NONPRINT_VAR=X\,%s\,%s\,Y' % (self.bold_esc, self.red_esc)
-        var = "X,%s,%s,Y" % (self.bold_esc, self.red_esc)
+        var = "X,%s,%s,Y" % (self.bold, self.red)
         env_vals = {"NONPRINT_VAR": var}
         a = {'Resource_List.select': '1:ncpus=1',
              'Resource_List.walltime': 3,
@@ -924,6 +924,7 @@ e.env["LAUNCH_NONPRINT"] = "CD"
         np_char1 = np_var.split(',')[1]
         np_char2 = np_var.split(',')[2]
         var_env = "X,%s,%s,Y" % (np_char1, np_char2)
+        var = "X,%s,%s,Y" % (self.bold_esc, self.red_esc)
         self.logger.info(
             "np_chars are: %s and %s" % (repr(np_char1), repr(np_char2)))
         self.assertEqual(var, var_env)
