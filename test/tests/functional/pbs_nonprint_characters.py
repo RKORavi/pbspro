@@ -157,8 +157,13 @@ sleep 5
         """
         cmd = [self.qstat_cmd, '-f', jid]
         ret = self.du.run_cmd(self.server.hostname, cmd=cmd)
-        qstat_out = '\n'.join(ret['out'])
-        self.assertIn(chk_var, qstat_out)
+        k = chk_var.split('=')[0]
+        for elem in ret['out']:
+            if k in elem:
+                i = ret['out'].index(elem)
+                job_str = elem + ret['out'][i+1].strip('\t')
+                break
+        self.assertIn(chk_var, job_str)
         self.logger.info('qstat -f output has: %s' % chk_var)
 
     def test_nonprint_character_qsubv(self):
