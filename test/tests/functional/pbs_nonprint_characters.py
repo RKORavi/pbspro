@@ -451,7 +451,7 @@ sleep 5
         func = '{ a=$(%s; %s); echo XX${a}YY; }' % (self.bold, self.red)
         # Adjustments in bash due to ShellShock malware fix in various OS
         env_vals = {"foo()": func}
-        chk_var = self.n + '=() {  a=$(%s; %s); echo XX${a}YY\n}' % (
+        chk_var = self.n + '=() {  a=$(%s; %s); echo XX${a}YY}' % (
             self.bold_esc, self.red_esc)
         out = self.n + '=() {  a=$(%s; %s);\n echo XX${a}YY\n}\nXXYY' % (
             self.bold_esc, self.red_esc)
