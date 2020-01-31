@@ -6006,7 +6006,6 @@ class Server(PBSService):
         _interactive_job = False
         as_script = False
         rc = None
-        run_str = ""
         if isinstance(obj, Job):
             if self.platform == 'cray' or self.platform == 'craysim':
                 m = False
@@ -6064,7 +6063,6 @@ class Server(PBSService):
         c = None
         # 1- Submission using the command line tools
         runcmd = []
-        exp_str = ""
         if env:
             runcmd += ['#!/bin/bash\n']
             for k, v in env.items():

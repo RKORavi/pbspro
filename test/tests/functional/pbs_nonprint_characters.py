@@ -157,8 +157,13 @@ sleep 5
         """
         cmd = [self.qstat_cmd, '-f', jid]
         ret = self.du.run_cmd(self.server.hostname, cmd=cmd)
-        qstat_out = '\n'.join(ret['out'])
-        self.assertIn(chk_var, qstat_out)
+        k = chk_var.split('=')[0]
+        for elem in ret['out']:
+            if k in elem:
+                i = ret['out'].index(elem)
+                job_str = elem.strip('\t') + ret['out'][i+1].strip('\t')
+                break
+        self.assertIn(chk_var, job_str)
         self.logger.info('qstat -f output has: %s' % chk_var)
 
     def test_nonprint_character_qsubv(self):
@@ -325,10 +330,10 @@ sleep 5
             func = '{ a=%s; echo XX${a}YY}; }' % ch
             # Adjustments in bash due to ShellShock malware fix in various OS
             env_vals = {"foo()": func}
-            chk_var = (self.n + '=() {  a=%s; echo XX${a}YY}\n}' %
+            chk_var = (self.n + '=() {  a=%s; echo XX${a}YY}}' %
                        self.npcat[ch])
             if ch in self.npch_asis:
-                chk_var = self.n + '=() {  a=%s; echo XX${a}YY}\n}' % ch
+                chk_var = self.n + '=() {  a=%s; echo XX${a}YY}}' % ch
             out = (self.n + '=() {  a=%s;\n echo XX${a}YY}\n}\nXX%sYY}' %
                    (self.npcat[ch], self.npcat[ch]))
             jid = self.create_and_submit_job(content=self.script,
@@ -446,7 +451,7 @@ sleep 5
         func = '{ a=$(%s; %s); echo XX${a}YY; }' % (self.bold, self.red)
         # Adjustments in bash due to ShellShock malware fix in various OS
         env_vals = {"foo()": func}
-        chk_var = self.n + '=() {  a=$(%s; %s); echo XX${a}YY\n}' % (
+        chk_var = self.n + '=() {  a=$(%s; %s); echo XX${a}YY}' % (
             self.bold_esc, self.red_esc)
         out = self.n + '=() {  a=$(%s; %s);\n echo XX${a}YY\n}\nXXYY' % (
             self.bold_esc, self.red_esc)
@@ -859,8 +864,8 @@ sleep 5
         execjob_launch when qsub -V is passed through command line.
         """
         # variable to check if with escaped nonprinting character
-        chk_var = r'NONPRINT_VAR=X\,%s\,%s\,Y' % (self.bold_esc, self.red_esc)
-        var = "X,%s,%s,Y" % (self.bold_esc, self.red_esc)
+        chk_var = 'NONPRINT_VAR=X\,%s\,%s\,Y' % (self.bold_esc, self.red_esc)
+        var = "X,%s,%s,Y" % (self.bold, self.red)
         env_vals = {"NONPRINT_VAR": var}
         a = {'Resource_List.select': '1:ncpus=1',
              'Resource_List.walltime': 3,
@@ -924,6 +929,7 @@ e.env["LAUNCH_NONPRINT"] = "CD"
         np_char1 = np_var.split(',')[1]
         np_char2 = np_var.split(',')[2]
         var_env = "X,%s,%s,Y" % (np_char1, np_char2)
+        var = "X,%s,%s,Y" % (self.bold_esc, self.red_esc)
         self.logger.info(
             "np_chars are: %s and %s" % (repr(np_char1), repr(np_char2)))
         self.assertEqual(var, var_env)
