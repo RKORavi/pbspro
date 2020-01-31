@@ -161,7 +161,7 @@ sleep 5
         for elem in ret['out']:
             if k in elem:
                 i = ret['out'].index(elem)
-                job_str = elem + ret['out'][i+1].strip('\t')
+                job_str = elem.strip('\t') + ret['out'][i+1].strip('\t')
                 break
         self.assertIn(chk_var, job_str)
         self.logger.info('qstat -f output has: %s' % chk_var)
