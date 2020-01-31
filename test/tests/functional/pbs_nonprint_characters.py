@@ -330,10 +330,10 @@ sleep 5
             func = '{ a=%s; echo XX${a}YY}; }' % ch
             # Adjustments in bash due to ShellShock malware fix in various OS
             env_vals = {"foo()": func}
-            chk_var = (self.n + '=() {  a=%s; echo XX${a}YY}\n}' %
+            chk_var = (self.n + '=() {  a=%s; echo XX${a}YY}}' %
                        self.npcat[ch])
             if ch in self.npch_asis:
-                chk_var = self.n + '=() {  a=%s; echo XX${a}YY}\n}' % ch
+                chk_var = self.n + '=() {  a=%s; echo XX${a}YY}}' % ch
             out = (self.n + '=() {  a=%s;\n echo XX${a}YY}\n}\nXX%sYY}' %
                    (self.npcat[ch], self.npcat[ch]))
             jid = self.create_and_submit_job(content=self.script,
