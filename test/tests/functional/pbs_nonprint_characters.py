@@ -113,7 +113,8 @@ sleep 5
         self.pbsnodes_cmd = os.path.join(self.server.pbs_conf['PBS_EXEC'],
                                          'bin', 'pbsnodes')
 
-    def create_and_submit_job(self, attribs=None, content=None,
+
+    def create_and_submit_job(self, user=None, attribs=None, content=None,
                               content_interactive=None, preserve_env=False,
                               set_env={}):
         """
@@ -125,14 +126,13 @@ sleep 5
             use_attribs = {}
         else:
             use_attribs = attribs
-        retjob = Job(TEST_USER, attrs=use_attribs)
+        retjob = Job(username=user, attrs=use_attribs)
 
         if content is not None:
             retjob.create_script(body=content)
         elif content_interactive is not None:
             retjob.interactive_script = content_interactive
             retjob.preserve_env = preserve_env
-
         return self.server.submit(retjob, env=set_env)
 
     def check_jobout(self, chk_var, jid, job_outfile, host=None):
