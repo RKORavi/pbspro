@@ -46,6 +46,7 @@
 #include <pbs_internal.h>
 #include <windows.h>
 #include "win.h"
+#include "log.h"
 #include "win_remote_shell.h"
 
 int
@@ -57,6 +58,7 @@ main(int argc, char *argv[])
 	char                    cmdline[PBS_CMDLINE_LENGTH] = {'\0'};
 	char                    cmd_shell[MAX_PATH] = {'\0'};
 	char					gui_app[MAX_PATH] = {'\0'};
+	char                    logb[LOG_BUF_SIZE] = { '\0' };
 	char					*user_name = NULL;
 	DWORD                   exit_code = 0;
 	STARTUPINFO             si;
@@ -100,9 +102,12 @@ main(int argc, char *argv[])
 	 * Create std pipes and wait for qsub to connect to these pipes
 	 */
 	strncpy(pipename_append, momjobid, PIPENAME_MAX_LENGTH - 1);
-	if (create_std_pipes(&si, pipename_append, 1) != 0)
+	if ((rc = create_std_pipes(&si, pipename_append, 1)) != 0) {
+		fprintf(stderr, "mom_shell: Failed to create pipe with error=%d\n", rc);
 		exit(-1);
-	if (connectstdpipes(&si, 1) != 0) {
+	}
+	if ((rc = connectstdpipes(&si, 1)) != 0) {
+		fprintf(stderr, "mom_shell: Failed to connect to std pipe with error=%d\n", rc);
 		/*
 		 * Close the standard out/in/err handles before returning
 		 */
@@ -113,15 +118,23 @@ main(int argc, char *argv[])
 	}
 
 	hJob = CreateJobObject(NULL, NULL);
+	if ((hJob == NULL) || (hJob == INVALID_HANDLE_VALUE)) {
+		fprintf(stderr, "mom_shell: CreateJobObject() failed with error=%d\n", GetLastError());
+		exit(-1);
+	}
+
 	/*
 	 * invoke pbs_demux to redirect any demux output to the interactive shell
 	 */
-	if (pbs_loadconf(0) == 0)
+	if (pbs_loadconf(0) == 0) {
+		fprintf(stderr, "mom_shell: Could not load pbs configuration\n");
 		exit(-1);
+	}
+
 	sprintf(cmdline, "cmd /c %s/sbin/pbs_demux.exe %s %d", pbs_conf.pbs_exec_path, momjobid, num_nodes);
 	rc = CreateProcess(NULL, cmdline, NULL, NULL, TRUE, CREATE_NO_WINDOW | CREATE_SUSPENDED | CREATE_DEFAULT_ERROR_MODE, NULL, NULL, &si, &pi_demux);
 	if (rc == 0) {
-		fprintf(stderr, "mom_shell: failed to create demux proces");
+		fprintf(stderr, "mom_shell: failed to create demux proces\n");
 	}
 	/* Attach pbs_demux process tree to the job object */
 	rc = AssignProcessToJobObject(hJob, pi_demux.hProcess);
@@ -129,6 +142,7 @@ main(int argc, char *argv[])
 		fprintf(stderr, "mom_shell: AssignProcessToJobObject failed with error=%d\n",
 			GetLastError());
 	}
+
 	ResumeThread(pi_demux.hThread);
 
 	/*
@@ -169,6 +183,10 @@ main(int argc, char *argv[])
 	 * Exit with shell's exit code.
 	 * Terminate pbs_demux process tree.
 	 */
-	TerminateJobObject(hJob, 0);
+	rc = TerminateJobObject(hJob, 0);
+	if (!rc) {
+		fprintf(stderr, "mom_shell: TerminateJobObject() failed with error=%d\n",
+			GetLastError());
+	}
 	exit(exit_code);
 }
