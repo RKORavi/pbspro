@@ -74,13 +74,13 @@ _setenv_win(char* key, char* value, int overwrite)
 	if(!GetEnvironmentVariable(key, value_buf, ENV_BUF_SIZE) && !overwrite)
 		if(!GetLastError() == ERROR_ENVVAR_NOT_FOUND){
 			errno = GetLastError()
-			fprintf(stderr, "Failed to get Environment variable %s errno: %d\n", key, errno);
+			fprintf(stderr, "Failed to get Environment variable %s errno: %lu\n", key, errno);
 			return 0;
 		}
 
 	if(!SetEnvironmentVariable(key, value)){
 		errno = GetLastError();
-		fprintf(stderr, "Failed to set Environment variable %s errno: %d\n", key, errno);
+		fprintf(stderr, "Failed to set Environment variable %s errno: %lu\n", key, errno);
 		return errno;
 	}
 
@@ -108,7 +108,7 @@ _getenv_win(char *key)
 	if(!GetEnvironmentVariable(key, value_buf, ENV_BUF_SIZE)){
 		if(GetLastError() == ERROR_ENVVAR_NOT_FOUND){
 			errno = ERROR_ENVVAR_NOT_FOUND;
-			fprintf(stderr, "Environment variable %s not found errno: %d\n", key, errno);
+			fprintf(stderr, "Environment variable %s not found errno: %lu\n", key, errno);
 			return NULL;
 		}
 	}
