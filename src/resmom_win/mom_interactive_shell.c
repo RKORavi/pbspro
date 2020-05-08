@@ -63,7 +63,7 @@ main(int argc, char *argv[])
 	DWORD                   exit_code = 0;
 	STARTUPINFO             si;
 	PROCESS_INFORMATION		pi_demux = { 0 };
-	int                     rc = 0;
+	DWORD                   rc = 0;
 	HANDLE					hJob = INVALID_HANDLE_VALUE;
 	int						i = 0;
 	int						show_window = SW_HIDE;
@@ -84,6 +84,7 @@ main(int argc, char *argv[])
 	is_gui_job = atoi(argv[3]);
 	/* A GUI job must have minimum 5 arguments */
 	if(is_gui_job && argc < 5) {
+		fprintf(stderr, "mom_shell: GUI job must have minimum 5 arguments");
 		exit(-1);
 	}
 	/* If it's a GUI job, argv[4] is username */
@@ -103,11 +104,11 @@ main(int argc, char *argv[])
 	 */
 	strncpy(pipename_append, momjobid, PIPENAME_MAX_LENGTH - 1);
 	if ((rc = create_std_pipes(&si, pipename_append, 1)) != 0) {
-		fprintf(stderr, "mom_shell: Failed to create pipe with error=%d\n", rc);
+		fprintf(stderr, "mom_shell: Failed to create pipe with error=%lu\n", rc);
 		exit(-1);
 	}
 	if ((rc = connectstdpipes(&si, 1)) != 0) {
-		fprintf(stderr, "mom_shell: Failed to connect to std pipe with error=%d\n", rc);
+		fprintf(stderr, "mom_shell: Failed to connect to std pipe with error=%lu\n", rc);
 		/*
 		 * Close the standard out/in/err handles before returning
 		 */
@@ -119,7 +120,7 @@ main(int argc, char *argv[])
 
 	hJob = CreateJobObject(NULL, NULL);
 	if ((hJob == NULL) || (hJob == INVALID_HANDLE_VALUE)) {
-		fprintf(stderr, "mom_shell: CreateJobObject() failed with error=%d\n", GetLastError());
+		fprintf(stderr, "mom_shell: CreateJobObject() failed with error=%lu\n", GetLastError());
 		exit(-1);
 	}
 
@@ -139,7 +140,7 @@ main(int argc, char *argv[])
 	/* Attach pbs_demux process tree to the job object */
 	rc = AssignProcessToJobObject(hJob, pi_demux.hProcess);
 	if (!rc) {
-		fprintf(stderr, "mom_shell: AssignProcessToJobObject failed with error=%d\n",
+		fprintf(stderr, "mom_shell: AssignProcessToJobObject failed with error=%lu\n",
 			GetLastError());
 	}
 
@@ -167,12 +168,15 @@ main(int argc, char *argv[])
 	/*
 	 * Run an interactive command shell, flush the file buffers
 	 */
-	if (run_command_si_blocking(&si, cmdline, &exit_code, is_gui_job, show_window, user_name) == 0) {
+	rc = run_command_si_blocking(&si, cmdline, &exit_code, is_gui_job, show_window, user_name);
+	if (rc == 0) {
 		if (si.hStdOutput != INVALID_HANDLE_VALUE)
 			FlushFileBuffers(si.hStdOutput);
 		if (si.hStdError != INVALID_HANDLE_VALUE)
 			FlushFileBuffers(si.hStdError);
-	}
+	} else
+		fprintf(stderr, "mom_shell: Failed to run interactive shell command %s with error %lu", cmdline, rc);
+
 	/*
 	 * Disconnect all named pipes and close handles
 	 */
@@ -185,7 +189,7 @@ main(int argc, char *argv[])
 	 */
 	rc = TerminateJobObject(hJob, 0);
 	if (!rc) {
-		fprintf(stderr, "mom_shell: TerminateJobObject() failed with error=%d\n",
+		fprintf(stderr, "mom_shell: TerminateJobObject() failed with error=%lu\n",
 			GetLastError());
 	}
 	exit(exit_code);
