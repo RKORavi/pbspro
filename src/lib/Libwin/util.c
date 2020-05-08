@@ -978,3 +978,59 @@ revert_impersonated_user()
 	}
 	return result;
 }
+
+/* @brief
+ *  	A wrapper to CloseHandle()
+ *  	If CloseHandle fails, log the error.
+ *
+ * @param[in]   hObject : handle to be closed
+ * @param[in]   handlename : name of param containing handle
+ * @param[in]   funcname : function name where API was invoked
+ * @param[in]   lineno : line number of API invocation
+ *
+ * @return     BOOL
+ * @retval     whether CloseHandle succeded, return value of CloseHandle() API
+ */
+BOOL
+_log_wrap_CloseHandle(HANDLE hObject, LPCSTR handlename, LPCSTR funcname, INT lineno)
+{
+	BOOL rc;
+
+#undef CloseHandle
+	rc = CloseHandle(hObject);
+
+	if (!rc) {
+		log_eventf(PBSEVENT_ERROR, 0, LOG_ERR, funcname,
+			"CloseHandle(%s) at line %d failed with error %d, Handle[%x]",
+			handlename, lineno, GetLastError(), hObject);
+	}
+	return rc;
+}
+
+/* @brief
+ *  	A wrapper to LocalFree()
+ *  	If LocalFree fails, log the error.
+ *
+ * @param[in]   hObject : handle to be closed
+ * @param[in]   handlename : name of param containing handle
+ * @param[in]   funcname : function name where API was invoked
+ * @param[in]   lineno : line number of API invocation
+ *
+ * @return     BOOL
+ * @retval     whether CloseHandle succeded, return value of CloseHandle() API
+ */
+HLOCAL
+_log_wrap_LocalFree(HLOCAL hObject, LPCSTR handlename, LPCSTR funcname, INT lineno)
+{
+	HLOCAL hret;
+
+#undef LocalFree
+	hret = LocalFree(hObject);
+
+	if (hObject && (hObject == hret)) {
+		log_eventf(PBSEVENT_ERROR, 0, LOG_ERR, funcname,
+			"LocalFree(%s) at line %d failed with error %d, Handle[%x]",
+			handlename, lineno, GetLastError(), hObject);
+	}
+	return hret;
+}

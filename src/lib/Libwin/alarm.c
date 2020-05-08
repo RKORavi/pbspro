@@ -66,6 +66,7 @@ alarm_thread(void *pv)
 	HANDLE	hthread = a->hthread;
 	unsigned int timeout = a->timeout_secs;
 	void (*func)(void) = a->func;
+	char logb[LOG_BUF_SIZE] = {'\0'};
 
 	(void)free(a);
 
@@ -80,10 +81,13 @@ alarm_thread(void *pv)
 
 		CloseHandle(g_hEvent);
 		g_hEvent = NULL;
-		ReleaseMutex(g_hMutex);
+		if ( !ReleaseMutex(g_hMutex) ) {
+			sprintf(logb, "ReleaseMutex failed : %lu", GetLastError());
+			log_err(-1, __func__, logb);
+		}
 
 		if (dw == WAIT_TIMEOUT) {
-			delay_time   = 0; /* clear this alarm */
+			delay_time = 0; /* clear this alarm */
 			if (func)
 				func();
 		}
@@ -116,11 +120,14 @@ win_alarm(unsigned int timeout_secs, void (*func)(void))
 	struct alarm_param *a;
 	unsigned int rtn_time = 0;
 	unsigned int now_time;
+	char logb[LOG_BUF_SIZE] = {'\0'};
 
 	/* create a mutex */
 	if (g_hMutex == NULL) {
 		g_hMutex = CreateMutex(0, FALSE, 0);
 		if (g_hMutex == NULL)
+			sprintf(logb, "CreateMutex failed : %lu", GetLastError());
+			log_err(-1, __func__, logb);
 			return (0);
 	}
 
@@ -134,7 +141,10 @@ win_alarm(unsigned int timeout_secs, void (*func)(void))
 	/* alarm(0) */
 	if (timeout_secs == 0) {
 		if (g_hEvent != NULL)
-			SetEvent(g_hEvent);  /* interrupt child */
+			if ( !(SetEvent(g_hEvent))) { /* interrupt child */
+				sprintf(logb, "SetEvent failed : %lu", GetLastError());
+				log_err(-1, __func__, logb);
+			}
 		return (rtn_time);
 	}
 
@@ -142,35 +152,53 @@ win_alarm(unsigned int timeout_secs, void (*func)(void))
 	/* alarm(timeout) */
 	if (g_hEvent != NULL) { /* found an event handle to child! */
 
-		SetEvent(g_hEvent);  /* interrupt child */
-		/* wait until g_hEvent has been updated by child */
-		if (WaitForSingleObject(g_hMutex,
-			timeout_secs*1000) == WAIT_TIMEOUT) {
-			/* error - the child thread still exists */
-			return (0);
+		if ( !(SetEvent(g_hEvent))) { /* interrupt child */
+			sprintf(logb, "SetEvent failed : %lu", GetLastError());
+			log_err(-1, __func__, logb);
 		}
-		ReleaseMutex(g_hMutex);
+		DWORD dwWaitResult = WaitForSingleObject(g_hMutex, timeout_secs*1000);
+		/* wait until g_hEvent has been updated by child */
+		if ( dwWaitResult == WAIT_TIMEOUT) {
+			/* error - the child thread still exists */
+			sprintf(logb, "Time-out interval elapsed; the child thread \
+			still exits\nWaitForSingleObject failed : %lu", GetLastError());
+			log_err(-1, __func__, logb);
+			return (0);
+		} else if ( dwWaitResult != WAIT_OBJECT_0) {
+			sprintf(logb, "WaitForSingleObject failed : %lu", GetLastError());
+			log_err(-1, __func__, logb);
+		}
+		if ( !ReleaseMutex(g_hMutex) ) {
+			sprintf(logb, "ReleaseMutex failed : %lu", GetLastError());
+			log_err(-1, __func__, logb);
+		}
 
 	}
 
 	if (g_hEvent == NULL) { /* no event handle */
 		g_hEvent = CreateEvent(0, FALSE, FALSE, 0);
-		if (g_hEvent == NULL)
+		if (g_hEvent == NULL) {
+			sprintf(logb, "CreateEvent failed : %lu", GetLastError());
+			log_err(-1, __func__, logb);
 			return (0);
+		}
 	}
 
 	a = (struct alarm_param *)malloc(sizeof(struct alarm_param));
 	if (a == NULL)
 		return (0);
 
-	DuplicateHandle(
+	if (!DuplicateHandle(
 		GetCurrentProcess(),
 		GetCurrentThread(),
 		GetCurrentProcess(),
 		&hThreadParent,
 		0,
 		FALSE,
-		DUPLICATE_SAME_ACCESS);
+		DUPLICATE_SAME_ACCESS)) {
+			sprintf(logb, "Duplicate Handle failed : %lu", GetLastError());
+			log_err(-1, __func__, logb);
+		}
 
 	a->hthread = hThreadParent;
 	a->timeout_secs = timeout_secs;
