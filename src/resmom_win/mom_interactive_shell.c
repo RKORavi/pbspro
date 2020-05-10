@@ -58,7 +58,6 @@ main(int argc, char *argv[])
 	char                    cmdline[PBS_CMDLINE_LENGTH] = {'\0'};
 	char                    cmd_shell[MAX_PATH] = {'\0'};
 	char					gui_app[MAX_PATH] = {'\0'};
-	char                    logb[LOG_BUF_SIZE] = { '\0' };
 	char					*user_name = NULL;
 	DWORD                   exit_code = 0;
 	STARTUPINFO             si;
