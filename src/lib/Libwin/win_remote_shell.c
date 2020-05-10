@@ -124,6 +124,7 @@ create_std_pipes(STARTUPINFO* psi, char *pipename_append, int is_interactive)
 	SECURITY_ATTRIBUTES SecAttrib = {0};
 	SECURITY_DESCRIPTOR SecDesc;
 	DWORD err = 0;
+	char logbuff[LOG_BUF_SIZE] = { '\0' };
 
 	if (psi == NULL || pipename_append == NULL)
 		return ERROR_INVALID_PARAMETER;
@@ -131,12 +132,14 @@ create_std_pipes(STARTUPINFO* psi, char *pipename_append, int is_interactive)
 	/* Assign NULL DACL to the scurity descriptor, allowing all access to the pipe */
 	if (InitializeSecurityDescriptor(&SecDesc, SECURITY_DESCRIPTOR_REVISION) == 0) {
 		err = GetLastError();
-		log_err(-1, __func__, "Failed to initialize a security descriptor with error %lu", err);
+		sprintf(logbuff, "Failed to initialize a security descriptor with error %lu", err);
+		log_err(-1, __func__, logbuff);
 		return err;
 	}
 	if (SetSecurityDescriptorDacl(&SecDesc, TRUE, NULL, FALSE) == 0) {
-		log_err(-1, __func__, "Failed to set DACL for security descriptor with error %lu", err);
 		err = GetLastError();
+		sprintf(logbuff, "Failed to set DACL for security descriptor with error %lu", err);
+		log_err(-1, __func__, logbuff);
 		return err;
 	}
 	SecAttrib.nLength = sizeof(SECURITY_ATTRIBUTES);
@@ -302,6 +305,7 @@ do_WaitNamedPipe(char *pipename, DWORD timeout, DWORD readwrite_accessflags)
 	int j = 0;
 	int retry = 10;
 	int retry2 = 10;
+	char logbuff[LOG_BUF_SIZE] = { '\0' };
 
 	SECURITY_ATTRIBUTES SecAttrib = {0};
 	SECURITY_DESCRIPTOR SecDesc;
@@ -310,14 +314,16 @@ do_WaitNamedPipe(char *pipename, DWORD timeout, DWORD readwrite_accessflags)
 		return INVALID_HANDLE_VALUE;
 
 	if (InitializeSecurityDescriptor(&SecDesc, SECURITY_DESCRIPTOR_REVISION) == 0) {
-		log_err(-1, __func__, "Failed to initialize a security descriptor with error %lu",
-			GetLastError());
+		err = GetLastError();
+		sprintf(logbuff, "Failed to initialize a security descriptor with error %lu", err);
+		log_err(-1, __func__, logbuff);
 		return INVALID_HANDLE_VALUE;
 	}
 
 	if (SetSecurityDescriptorDacl(&SecDesc, TRUE, NULL, TRUE) == 0) {
-		log_err(-1, __func__, "Failed to set DACL for security descriptor with error %lu",
-			GetLastError());
+		err = GetLastError();
+		sprintf(logbuff, "Failed to set DACL for security descriptor with error %lu", err);
+		log_err(-1, __func__, logbuff);
 		return INVALID_HANDLE_VALUE;
 	}
 
@@ -419,7 +425,8 @@ run_command_si_blocking(STARTUPINFO *psi, char *command, DWORD *p_returncode, in
 {
 	PROCESS_INFORMATION pi;	
 	HANDLE	hJob = INVALID_HANDLE_VALUE;
-	DWORD err;
+	DWORD err = 0;
+	char logbuff[LOG_BUF_SIZE] = { '\0' };
 
 	if (command == NULL || p_returncode == NULL || psi == NULL)
 		return ERROR_INVALID_PARAMETER;
@@ -453,7 +460,9 @@ run_command_si_blocking(STARTUPINFO *psi, char *command, DWORD *p_returncode, in
 		/* Get current active user's token */
 		hUserToken = get_activeusertoken(activesessionid);
 		if (hUserToken == INVALID_HANDLE_VALUE) {
-			log_err(-1, __func__, "Failed to get active user token with error %lu", GetLastError());
+			err = GetLastError();
+			sprintf(logbuff, "Failed to get active user token with error %lu", err);
+			log_err(-1, __func__, logbuff);
 			return 1;
 		}
 		/* 
@@ -463,7 +472,9 @@ run_command_si_blocking(STARTUPINFO *psi, char *command, DWORD *p_returncode, in
 
 		hJob = CreateJobObject(NULL, NULL);
 		if ((hJob == NULL) || (hJob == INVALID_HANDLE_VALUE)) {
-			log_err(-1, __func__, "CreateJobObject() failed with error=%lu\n", GetLastError());
+			err = GetLastError();
+			sprintf(logbuff, "CreateJobObject() failed with error=%lu\n", err);
+			log_err(-1, __func__, logbuff);
 			exit(-1);
 		}
 		/* Run the given command in active user's session using active user's token (hUserToken)*/
@@ -488,7 +499,8 @@ run_command_si_blocking(STARTUPINFO *psi, char *command, DWORD *p_returncode, in
 		}
 		else {
 			err = GetLastError();
-			log_err(-1, __func__, "CreateProcessAsUser failed with error %lu", err);
+			sprintf(logbuff, "CreateProcessAsUser failed with error %lu", err);
+			log_err(-1, __func__, logbuff);
 			return (err);
 		}
 		CloseHandle(hUserToken);
@@ -517,7 +529,8 @@ run_command_si_blocking(STARTUPINFO *psi, char *command, DWORD *p_returncode, in
 		}
 		else {
 			err = GetLastError();
-			log_err(-1, __func__, "CreateProcess failed with error %lu", err);
+			sprintf(logbuff, "CreateProcess failed with error %lu", err);
+			log_err(-1, __func__, logbuff);
 			return (err);
 		}
 	}
@@ -735,21 +748,27 @@ execute_remote_shell_command(char *remote_host, char *pipename_append, BOOL conn
 	char stdout_pipe[PIPENAME_MAX_LENGTH] = {0};
 	char stdin_pipe[PIPENAME_MAX_LENGTH] = {0};
 	char stderr_pipe[PIPENAME_MAX_LENGTH] = {0};
+	char logbuff[LOG_BUF_SIZE] = { '\0' };
 	int retry = 0;
-        int max_retry = 10;
+    int max_retry = 10;
 	int retry_interval = 1000; /* interval between each retry */
 	HANDLE hPipe_remote_stdout = INVALID_HANDLE_VALUE;
 	HANDLE hPipe_remote_stdin = INVALID_HANDLE_VALUE;
 	HANDLE hPipe_remote_stderr = INVALID_HANDLE_VALUE;
 	SECURITY_ATTRIBUTES SecAttrib = {0};
 	SECURITY_DESCRIPTOR SecDesc;
+	DWORD err = 0;
 
 	if (InitializeSecurityDescriptor(&SecDesc, SECURITY_DESCRIPTOR_REVISION) == 0) {
-		log_err(-1, __func__, "Failed to initialize a security descriptor with error %lu", GetLastError());
+		err = GetLastError();
+		sprintf(logbuff, "Failed to initialize a security descriptor with error %lu", err);
+		log_err(-1, __func__, logbuff);
 		return FALSE;
 	}
 	if (SetSecurityDescriptorDacl(&SecDesc, TRUE, NULL, FALSE) == 0) {
-		log_err(-1, __func__, "Failed to set DACL for security descriptor with error %lu", GetLastError);
+		err = GetLastError();
+		sprintf(logbuff, "Failed to set DACL for security descriptor with error %lu", err);
+		log_err(-1, __func__, logbuff);
 		return FALSE;
 	}
 	SecAttrib.nLength = sizeof(SECURITY_ATTRIBUTES);
