@@ -108,7 +108,6 @@ _getenv_win(char *key)
 	if(!GetEnvironmentVariable(key, value_buf, ENV_BUF_SIZE)){
 		if(GetLastError() == ERROR_ENVVAR_NOT_FOUND){
 			errno = ERROR_ENVVAR_NOT_FOUND;
-			fprintf(stderr, "Environment variable %s not found errno: %lu\n", key, errno);
 			return NULL;
 		}
 	}
