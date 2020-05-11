@@ -73,7 +73,7 @@ _setenv_win(char* key, char* value, int overwrite)
 
 	if(!GetEnvironmentVariable(key, value_buf, ENV_BUF_SIZE) && !overwrite)
 		if(!GetLastError() == ERROR_ENVVAR_NOT_FOUND){
-			errno = GetLastError()
+			errno = GetLastError();
 			fprintf(stderr, "Failed to get Environment variable %s errno: %lu\n", key, errno);
 			return 0;
 		}
