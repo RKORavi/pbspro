@@ -777,7 +777,7 @@ sleep 5
             if ch in self.npch_asis:
                 chk_var = r'NONPRINT_VAR=X\,%s\,Y' % ch
             os.environ["NONPRINT_VAR"] = "X,%s,Y" % ch
-            fn = self.du.create_temp_file(prefix="job_out1")
+            fn = self.du.create_temp_file(asuser=TEST_USER, prefix="job_out1")
             self.job_out1_tempfile = fn
             # submit an interactive job
             cmd = 'env > ' + self.job_out1_tempfile
@@ -819,7 +819,7 @@ sleep 5
         chk_var = r'NONPRINT_VAR=X\,%s\,%s\,Y' % (self.bold_esc, self.red_esc)
         var = "X,%s,%s,Y" % (self.bold, self.red)
         os.environ["NONPRINT_VAR"] = var
-        fn = self.du.create_temp_file(prefix="job_out1")
+        fn = self.du.create_temp_file(asuser=TEST_USER, prefix="job_out1")
         self.job_out1_tempfile = fn
         # submit an interactive job
         cmd = 'env > ' + self.job_out1_tempfile
