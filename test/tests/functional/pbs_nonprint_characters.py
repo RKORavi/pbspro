@@ -140,7 +140,7 @@ sleep 5
         """
         self.server.expect(JOB, 'queue', op=UNSET, id=jid, offset=1)
         ret = self.du.cat(hostname=host, filename=job_outfile,
-                          runas=TEST_USER, option="-v")
+                          option="-v")
         j_output = ""
         if len(ret['out']) > 0:
             if len(ret['out']) > 1:
@@ -913,7 +913,6 @@ e.env["LAUNCH_NONPRINT"] = "CD"
         ret = self.du.cat(
             hostname=job_host,
             filename=job_outfile,
-            sudo=True,
             option="-v")
         j_output = ret['out']
         penv = {}
